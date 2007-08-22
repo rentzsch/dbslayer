@@ -43,6 +43,7 @@ AC_MSG_RESULT($APR_INCLUDES)
 AC_MSG_CHECKING(for APR libraries)
 AC_MSG_RESULT($APR_LIBS)
 
+
 dnl apache run time apr utility is required
 AC_ARG_WITH(apu-1-config, 
 [  --with-apu-1-config=PATH   The path to apu-1-config if not in $PATH], [
@@ -96,6 +97,8 @@ AC_SUBST(MYSQL_CFLAGS)
 AC_SUBST(MYSQL_INCLUDES)
 AC_SUBST(MYSQL_LIBS)
 
+
+
 AC_MSG_CHECKING(for MySQL CFLAGS)
 AC_MSG_RESULT($MYSQL_CFLAGS)
 AC_MSG_CHECKING(for MySQL includes)
@@ -103,6 +106,24 @@ AC_MSG_RESULT($MYSQL_INCLUDES)
 AC_MSG_CHECKING(for MySQL libraries)
 AC_MSG_RESULT($MYSQL_LIBS)
 
+
+
+AC_CHECK_LIB(lua5.1, lua_newstate, [LUA_LIBS='-llua5.1 -llua5.1-filesystem'])
+AC_MSG_CHECKING(for lua includes)
+AC_CHECK_HEADERS([lua5.1/lua.h lua5.1/lauxlib.h])
+AC_SUBST(LUA_LIBS)
+LUA_INCLUDES="-I lua"
+for file in lua/*.lua; do 
+    destfile=`basename $file .lua`_parser_lua.h
+    define=`basename $destfile .h`
+    define=`echo "${define}"`
+    echo "char * ${define}() {" > server/$destfile
+    cat $file | sed -e 's/\\/\\\\/g' | sed -e 's/"/\\"/g' | tr -d '\015' |  tr -d '\177-\255' | sed -e 's/$/\\n/' | tr -d '\012' | sed -e "s/^/    return(\""/ | sed -e 's/$/");\n/g'>> server/$destfile; 
+    echo "}" >> server/$destfile
+    AC_MSG_RESULT(generating $destfile from $file)
+done
+AC_MSG_CHECKING(for lua libraries)
+AC_MSG_RESULT($LUA_LIBS)
 # Checks for programs.
 AC_PROG_CC
 AC_PROG_INSTALL
