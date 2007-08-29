@@ -40,6 +40,7 @@ typedef struct  _thread_shared_data_t {
     char *lua_input_filter;
     char *lua_output_filter;
 #endif
+    char *serialized_schema;
     char *server;
     char *basedir;
     dbslayer_log_manager_t *lmanager;
@@ -200,7 +201,7 @@ char * handle_lua( lua_State *L,
     char *lua_output=NULL;
     char *output=NULL;
     lua_pushstring(L, input);
-    lua_setglobal(L, SLAYER_LUA_JSON_INPUT_VARIABLE);
+    lua_setglobal(L, SLAYER_LUA_INPUT_VAR);
     status = luaL_dofile(L, filter);
     if (status) {
 	printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
@@ -335,8 +336,7 @@ apr_status_t handle_connection(thread_shared_data_t *td,
 	    &&  uri_info.query != NULL ) {
 	    handle_query(td,tu,qd,dbhandle,uri_info.query, http_request );
 	} else if ( uri_matches(&uri_info, SLAYER_SCHEMA_PATH, mpool)) {
-	    char *output = json_serialize(qd->mpool, dbschema(dbhandle, mpool));
-	    handle_response(td,qd,uri_info.path,http_request,"200 OK",200,output);
+	    handle_response(td,qd,uri_info.path,http_request,"200 OK",200,td->serialized_schema);
 	} else if ( uri_matches(&uri_info, SLAYER_SHUTDOWN_PATH, mpool) ) {
 	    apr_sockaddr_t *local_addr;
 	    apr_sockaddr_t *remote_addr;
@@ -381,11 +381,20 @@ void* run_query_thread(apr_thread_t *mythread,void * x) {
     thread_wrapper_data_t *td = (thread_wrapper_data_t*) x;
     db_handle_t *dbhandle = db_handle_init(td->shared->user, td->shared->pass, 
 					   td->shared->server,td->shared->config,&(td->uniq->thread_number));
+    /* need to set this here, needs a dbhandle */
+    if ( td->shared->serialized_schema == NULL ) {
+	td->shared->serialized_schema = json_serialize(mpool, dbschema(dbhandle, mpool));
+    }
+#ifdef HAVE_LUA5_1_LUA_H	    
+    lua_pushstring(td->uniq->lua_state, td->shared->serialized_schema);
+    lua_setglobal(td->uniq->lua_state, SLAYER_LUA_SCHEMA_VAR);
+#endif
     do  { 
 	fetch = NULL;;
 	while( (status = apr_queue_pop(td->shared->in_queue,&fetch)) == APR_EINTR);
 	if(status == APR_SUCCESS) { 
 	    queue_data_t *qd = (queue_data_t*) fetch;
+
 	    status = handle_connection(td->shared,td->uniq,qd,dbhandle);
 	    if(status == APR_SUCCESS){
 		while((status == apr_queue_push(td->shared->out_queue,qd)) == APR_EINTR);
@@ -495,7 +504,7 @@ int main(int argc, char **argv) {
     apr_threadattr_detach_set(thread_attr,0); // don't detach
     apr_threadattr_stacksize_set(thread_attr,4096*10);
 
-
+    td_shared.serialized_schema = NULL;
     td_shared.in_queue  = out_queue;
     td_shared.out_queue = in_queue;
     td_shared.user = user;

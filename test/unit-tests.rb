@@ -38,7 +38,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     @@slayer_pid = fork do
       exec(command)
     end
-    sleep(5);
+    sleep(1);
   end
 
   def stop_slayer
@@ -82,7 +82,6 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     exec_query(sql) do |f|
       # return the item, the metadata type
       res = f.read
-      puts res
 
       h = JSON.parse(res)
 
@@ -99,11 +98,27 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     end
   end
 
-#  def test_mapping
-#    open "http://#{$slayer_server}:#{$slayer_port}/map" do  |f|
-#      puts f.read
-#    end
-#  end
+  def test_schema
+    open "http://#{$slayer_server}:#{$slayer_port}/schema" do  |f|
+      h=JSON.parse(f.read)
+      assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
+      assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
+    end
+  end
+
+  def test_schema_lua
+    File.open(@file_opts[:output_filter], "w") do |file|
+      file << "t = Json.Decode( json )\n"
+      file << "t.SCHEMA = Json.Decode( schema_json ).SCHEMA\n"
+      file << "return Json.Encode(t)\n"
+    end
+    exec_query("select * from City where CountryCode IS NULL") do |f|
+      json = f.read
+      h=JSON.parse(json)
+      assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
+      assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
+    end
+  end
 
   def test_lua
     File.open(@file_opts[:input_filter], "w") do |file|

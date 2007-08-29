@@ -250,12 +250,14 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
     MYSQL_RES *res = NULL;
     int num_fields = 0;
     MYSQL_FIELD *fields = NULL;
+    json_value *out = NULL;
     json_value *schema = NULL;
     MYSQL_ROW row;
     int i=0;
     int n=0;
-    int status = 0;
+    out = json_object_create(mpool);
     schema = json_object_create(mpool);
+    json_object_add(out, "SCHEMA", schema);
     res = mysql_list_tables(dbhandle->db, NULL);
     while( (row = mysql_fetch_row(res)) ) {
 	tables[num_tables] = apr_pstrdup(mpool, (char *)row[0]);
@@ -274,7 +276,7 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 	mysql_free_result(res);
 	json_object_add(schema, tables[i], table);
     }
-    return schema;
+    return out;
 }
   
 json_value * dbexecute(db_handle_t *dbhandle, json_value *injson, apr_pool_t *mpool) {
