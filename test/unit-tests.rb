@@ -32,7 +32,8 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     if opts[:output_filter]
       ofargs = "-o " +  opts[:output_filter]
     end
-    `killall dbslayer`
+    `killall dbslayer 2>/dev/null`
+    sleep(1);
     command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args}"
     puts command
     @@slayer_pid = fork do
@@ -98,47 +99,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     end
   end
 
-  def test_schema
-    open "http://#{$slayer_server}:#{$slayer_port}/schema" do  |f|
-      h=JSON.parse(f.read)
-      assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
-      assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
-    end
-  end
 
-  def test_schema_lua
-    File.open(@file_opts[:output_filter], "w") do |file|
-      file << "t = Json.Decode( json )\n"
-      file << "t.SCHEMA = Json.Decode( schema_json ).SCHEMA\n"
-      file << "return Json.Encode(t)\n"
-    end
-    exec_query("select * from City where CountryCode IS NULL") do |f|
-      json = f.read
-      h=JSON.parse(json)
-      assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
-      assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
-    end
-  end
-
-  def test_lua
-    File.open(@file_opts[:input_filter], "w") do |file|
-      file << "t = Json.Decode( json )\n"
-      file << "t.SQL = 'ALL YOUR SQL BELONG TO US'\n"
-      file << "return Json.Encode(t)\n"
-    end
-    File.open(@file_opts[:output_filter], "w") do |file|
-      file << "t = Json.Decode( json )\n"
-      file << "t.OUTPUT_FILTER_MESSAGE = 'HAHA'"
-      file << "return Json.Encode(t)\n"
-    end
-    exec_query("select * from City") do |f|
-      foo = f.read
-      h = JSON.parse(foo)
-      assert_not_nil h["MYSQL_ERROR"]
-      assert_not_nil h["MYSQL_ERROR"].match(/ALL YOUR SQL BELONG TO US/)
-      assert_equal "HAHA", h["OUTPUT_FILTER_MESSAGE"]
-    end
-  end
 
   def test_connected
   end
@@ -287,9 +248,81 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     assert_column_select('year', :null, nil, 'MYSQL_TYPE_YEAR')
   end
 
-  def test_json
+    def test_schema
+    open "http://#{$slayer_server}:#{$slayer_port}/schema" do  |f|
+      h=JSON.parse(f.read)
+      assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
+      assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
+    end
   end
 
+  def test_lua_schema
+    File.open(@file_opts[:output_filter], "w") do |file|
+      file << "t = Json.Decode( json )\n"
+      file << "t.SCHEMA = Json.Decode( schema_json ).SCHEMA\n"
+      file << "return Json.Encode(t)\n"
+    end
+    exec_query("select * from City where CountryCode IS NULL") do |f|
+      json = f.read
+      h=JSON.parse(json)
+      assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
+      assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
+    end
+  end
+
+  def test_lua
+    File.open(@file_opts[:input_filter], "w") do |file|
+      file << "t = Json.Decode( json )\n"
+      file << "t.SQL = 'ALL YOUR SQL BELONG TO US'\n"
+      file << "return Json.Encode(t)\n"
+    end
+    File.open(@file_opts[:output_filter], "w") do |file|
+      file << "t = Json.Decode( json )\n"
+      file << "t.OUTPUT_FILTER_MESSAGE = 'HAHA'"
+      file << "return Json.Encode(t)\n"
+    end
+    exec_query("select * from City") do |f|
+      foo = f.read
+      h = JSON.parse(foo)
+      assert_not_nil h["MYSQL_ERROR"]
+      assert_not_nil h["MYSQL_ERROR"].match(/ALL YOUR SQL BELONG TO US/)
+      assert_equal "HAHA", h["OUTPUT_FILTER_MESSAGE"]
+    end
+  end
+
+  def test_lua_concurrancy
+    failure = nil
+    threads = []
+    File.open(@file_opts[:output_filter], "w") do |file|
+      file << "t = Json.Decode( json )\n"
+      file << "t.SCHEMA = Json.Decode( schema_json ).SCHEMA\n"
+      file << "return Json.Encode(t)\n"
+    end
+    10.times do |i|
+      threads << Thread.new(i) do |which|
+        10.times do |n|
+          exec_query("select * from City where CountryCode IS NULL") do |f|
+            foo = f.read
+            h = JSON.parse(foo)
+            unless h
+              failure = true
+            end
+            if h["MYSQL_ERROR"]
+              failure = true
+            end
+            unless "MYSQL_TYPE_TEXT" == h["SCHEMA"]["TypeTest"]["mediumblob"]
+              failure = true
+            end
+            unless  "MYSQL_TYPE_STRING" ==  h["SCHEMA"]["City"]["CountryCode"]
+              failure = true
+            end
+          end
+        end
+      end
+    end
+    threads.each{|thr| thr.join }
+    assert_nil failure
+  end
 
 end
 
