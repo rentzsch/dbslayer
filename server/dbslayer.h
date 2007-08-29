@@ -14,6 +14,7 @@
 #define SLAYER_STATS_LOG_PATH "/stats/log"
 #define SLAYER_STATS_ERROR_PATH "/stats/error"
 #define SLAYER_STATS_ARGS_PATH "/stats/args"
+#define SLAYER_LUA_JSON_INPUT_VARIABLE  "json"
 /* $Id: dbslayer.h,v 1.2 2007/05/09 20:55:00 derek Exp $ */
 
 typedef struct _manager_t { 

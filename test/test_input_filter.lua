@@ -1,1 +1,1 @@
-return filter_input
+return json

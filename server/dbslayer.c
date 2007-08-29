@@ -200,7 +200,7 @@ char * handle_lua( lua_State *L,
     char *lua_output=NULL;
     char *output=NULL;
     lua_pushstring(L, input);
-    lua_setglobal(L, "filter_input");
+    lua_setglobal(L, SLAYER_LUA_JSON_INPUT_VARIABLE);
     status = luaL_dofile(L, filter);
     if (status) {
 	printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));

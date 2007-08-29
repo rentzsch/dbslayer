@@ -32,12 +32,13 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     if opts[:output_filter]
       ofargs = "-o " +  opts[:output_filter]
     end
-
+    `killall dbslayer`
     command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args}"
     puts command
     @@slayer_pid = fork do
       exec(command)
     end
+    sleep(5);
   end
 
   def stop_slayer
@@ -52,7 +53,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
                                   :output_filter => path + "/" + "test_output_filter.lua" }
     [:input_filter, :output_filter].each  do |key|
       File.open(@file_opts[key], "w") do |file|
-        file.write("return filter_input")
+        file.write("return json")
       end
     end
     @@slayer_pid ||= start_slayer(@file_opts)
@@ -81,7 +82,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     exec_query(sql) do |f|
       # return the item, the metadata type
       res = f.read
-      puts res if column == 'bit'
+      puts res
 
       h = JSON.parse(res)
 
@@ -106,17 +107,18 @@ class TestDBSlayerTypes < Test::Unit::TestCase
 
   def test_lua
     File.open(@file_opts[:input_filter], "w") do |file|
-      file << "t = Json.Decode( filter_input )\n"
+      file << "t = Json.Decode( json )\n"
       file << "t.SQL = 'ALL YOUR SQL BELONG TO US'\n"
       file << "return Json.Encode(t)\n"
     end
     File.open(@file_opts[:output_filter], "w") do |file|
-      file << "t = Json.Decode( filter_input )\n"
+      file << "t = Json.Decode( json )\n"
       file << "t.OUTPUT_FILTER_MESSAGE = 'HAHA'"
       file << "return Json.Encode(t)\n"
     end
     exec_query("select * from City") do |f|
-      h = JSON.parse(f.read)
+      foo = f.read
+      h = JSON.parse(foo)
       assert_not_nil h["MYSQL_ERROR"]
       assert_not_nil h["MYSQL_ERROR"].match(/ALL YOUR SQL BELONG TO US/)
       assert_equal "HAHA", h["OUTPUT_FILTER_MESSAGE"]
