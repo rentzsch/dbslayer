@@ -98,6 +98,12 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     end
   end
 
+#  def test_mapping
+#    open "http://#{$slayer_server}:#{$slayer_port}/map" do  |f|
+#      puts f.read
+#    end
+#  end
+
   def test_lua
     File.open(@file_opts[:input_filter], "w") do |file|
       file << "t = Json.Decode( filter_input )\n"
@@ -266,5 +272,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
 
   def test_json
   end
+
+
 end
 
