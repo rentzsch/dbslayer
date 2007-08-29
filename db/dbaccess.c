@@ -251,6 +251,7 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
     int num_fields = 0;
     MYSQL_FIELD *fields = NULL;
     json_value *out = NULL;
+    json_value *result = NULL;
     json_value *schema = NULL;
     MYSQL_ROW row;
     int i=0;
@@ -266,7 +267,8 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
     }
 
     schema = json_object_create(mpool);
-    json_object_add(out, "SCHEMA", schema);
+
+
 
 
     while( (row = mysql_fetch_row(res)) ) {
@@ -281,6 +283,7 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 	    json_object_add(out,"MYSQL_ERROR",json_string_create(mpool,mysql_error(dbhandle->db)));
 	    json_object_add(out,"MYSQL_ERRNO",json_long_create(mpool,mysql_errno(dbhandle->db)));
 	    json_object_add(out,"SERVER" , json_string_create(mpool,dbhandle->server[dbhandle->server_offset]));
+	    json_object_add(out,"SUCCESS",json_boolean_create(mpool,0));
 	    return out;
 	}
 	num_fields = mysql_num_fields(res);
@@ -290,8 +293,12 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 	    json_object_add(table,apr_pstrdup(mpool,fields[n].name), json_string_create(mpool,typename));
 	}
 	mysql_free_result(res);
+
 	json_object_add(schema, tables[i], table);
     }
+    json_object_add(out,"SCHEMA", schema);
+    json_object_add(out,"SUCCESS",json_boolean_create(mpool,1));
+    json_object_add(out,"SERVER" , json_string_create(mpool,dbhandle->server[dbhandle->server_offset]));
     return out;
 }
   
