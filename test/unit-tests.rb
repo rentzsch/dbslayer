@@ -29,12 +29,16 @@ class TestDBSlayerTypes < Test::Unit::TestCase
       ifargs = "-f " + opts[:input_filter]
     end
 
+    if opts[:mapper]
+      margs = "-m " + opts[:mapper]
+    end
+
     if opts[:output_filter]
       ofargs = "-o " +  opts[:output_filter]
     end
     `killall dbslayer 2>/dev/null`
     sleep(1);
-    command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args}"
+    command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
     puts command
     @@slayer_pid = fork do
       exec(command)
@@ -51,7 +55,8 @@ class TestDBSlayerTypes < Test::Unit::TestCase
   def setup
     path = File.expand_path(File.dirname(__FILE__))
     @file_opts = { :input_filter => path + "/" + "test_input_filter.lua",
-                                  :output_filter => path + "/" + "test_output_filter.lua" }
+                   :output_filter => path + "/" + "test_output_filter.lua",
+                   :mapper => path + "/" + "map.lua" }
     [:input_filter, :output_filter].each  do |key|
       File.open(@file_opts[key], "w") do |file|
         file.write("return json")
@@ -85,7 +90,6 @@ class TestDBSlayerTypes < Test::Unit::TestCase
       res = f.read
 
       h = JSON.parse(res)
-
       assert_equal h["RESULT"]["HEADER"][0], column
 
       if json_type == nil
@@ -104,9 +108,9 @@ class TestDBSlayerTypes < Test::Unit::TestCase
   def test_connected
   end
 
-  def test_bit
-    assert_column_select('bit', :data, String, 'MYSQL_TYPE_BIT')
-  end
+#  def test_bit
+#    assert_column_select('bit', :data, String, 'MYSQL_TYPE_BIT')
+#  end
 
   def test_bit_null
     assert_column_select('bit', :null, nil, 'MYSQL_TYPE_BIT')
@@ -248,7 +252,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     assert_column_select('year', :null, nil, 'MYSQL_TYPE_YEAR')
   end
 
-    def test_schema
+ def test_schema
     open "http://#{$slayer_server}:#{$slayer_port}/schema" do  |f|
       h=JSON.parse(f.read)
       assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
@@ -267,6 +271,18 @@ class TestDBSlayerTypes < Test::Unit::TestCase
       h=JSON.parse(json)
       assert_equal "MYSQL_TYPE_TEXT", h["SCHEMA"]["TypeTest"]["mediumblob"]
       assert_equal "MYSQL_TYPE_STRING", h["SCHEMA"]["City"]["CountryCode"]
+    end
+  end
+
+  def test_map
+    require 'fileutils'
+    open("http://#{$slayer_server}:#{$slayer_port}/map") do |f|
+      output = f.read
+      h = JSON.parse(output)
+      assert_equal "STRING", h["RESULT"]["MAP"]["Country"]["members"]["Name"]
+      assert_equal "many_to_many", h["RESULT"]["MAP"]["CountryLanguage"]["members"]["tenants"]["relation"]
+      assert_equal "many_to_one", h["RESULT"]["MAP"]["Apartment"]["members"]["tenants"]["relation"]
+      #puts JSON.pretty_generate(h)
     end
   end
 
@@ -323,6 +339,8 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     threads.each{|thr| thr.join }
     assert_nil failure
   end
+
+
 
 end
 

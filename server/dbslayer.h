@@ -11,11 +11,13 @@
 #define SLAYER_SHUTDOWN_PATH "/shutdown"
 #define SLAYER_STATS_PATH "/stats"
 #define SLAYER_SCHEMA_PATH "/schema"
+#define SLAYER_MAPPING_PATH "/map"
 #define SLAYER_STATS_LOG_PATH "/stats/log"
 #define SLAYER_STATS_ERROR_PATH "/stats/error"
 #define SLAYER_STATS_ARGS_PATH "/stats/args"
 #define SLAYER_LUA_INPUT_VAR   "json"
 #define SLAYER_LUA_SCHEMA_VAR  "schema_json"
+#define SLAYER_LUA_SERVER_VAR  "server"
 /* $Id: dbslayer.h,v 1.2 2007/05/09 20:55:00 derek Exp $ */
 
 typedef struct _manager_t { 

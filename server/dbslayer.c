@@ -37,9 +37,11 @@ typedef struct  _thread_shared_data_t {
     char *pass;
     char *config;
 #ifdef HAVE_LUA5_1_LUA_H
-    char *lua_input_filter;
-    char *lua_output_filter;
+    char *input_filter_lua;
+    char *output_filter_lua;
+    char *mapper_lua;
 #endif
+    char *serialized_mapping;
     char *serialized_schema;
     char *server;
     char *basedir;
@@ -242,21 +244,21 @@ int handle_query( thread_shared_data_t *td,
     char *output=NULL;
     char *input = urldecode(qd->mpool,equery);
 #ifdef HAVE_LUA5_1_LUA_H
-    if ( td->lua_input_filter == NULL  ) {
+    if ( td->input_filter_lua == NULL  ) {
 	output = apr_pstrdup(qd->mpool, input);
     } else {
 	output = handle_lua(tu->lua_state,
-			    td->lua_input_filter,
+			    td->input_filter_lua,
 			    input,
 			    qd->mpool);
     }
 
     input = handle_db(td, qd, dbhandle,output, http_request);
-    if ( td->lua_output_filter == NULL ) {
+    if ( td->output_filter_lua == NULL ) {
 	output = apr_pstrdup(qd->mpool, input);
     } else {
 	output = handle_lua(tu->lua_state,
-			    td->lua_output_filter,
+			    td->output_filter_lua,
 			    input,
 			    qd->mpool);
     }
@@ -285,6 +287,24 @@ int uri_matches( apr_uri_t *uri_info,
 
 
     return retval;
+}
+
+void handle_mapping(thread_shared_data_t *td, 
+		    thread_uniq_data_t *tu,
+		    apr_pool_t *mpool ) {
+    if ( td->mapper_lua != NULL ) {
+	if ( td->serialized_mapping == NULL ) {
+	    if (luaL_dofile(tu->lua_state, td->mapper_lua))  {
+		printf("ERROR: lua - %s\n", (char *)lua_tostring(tu->lua_state, -1));
+		lua_pop(tu->lua_state, 1);
+	    } else {
+		char *lua_output=NULL;
+		lua_output = (char *)lua_tostring(tu->lua_state, -1);
+		lua_pop(tu->lua_state, 1);
+		td->serialized_mapping = apr_pstrdup(mpool, lua_output);
+	    }
+	}
+    }
 }
 
 apr_status_t handle_connection(thread_shared_data_t *td, 
@@ -335,6 +355,9 @@ apr_status_t handle_connection(thread_shared_data_t *td,
 	if( uri_matches(&uri_info, SLAYER_QUERY_PATH, mpool)
 	    &&  uri_info.query != NULL ) {
 	    handle_query(td,tu,qd,dbhandle,uri_info.query, http_request );
+	} else if ( uri_matches(&uri_info, SLAYER_MAPPING_PATH, mpool )) {
+	    handle_mapping(td, tu, mpool);
+	    handle_response(td,qd,uri_info.path,http_request,"200 OK",200,td->serialized_mapping);
 	} else if ( uri_matches(&uri_info, SLAYER_SCHEMA_PATH, mpool)) {
 	    handle_response(td,qd,uri_info.path,http_request,"200 OK",200,td->serialized_schema);
 	} else if ( uri_matches(&uri_info, SLAYER_SHUTDOWN_PATH, mpool) ) {
@@ -388,7 +411,10 @@ void* run_query_thread(apr_thread_t *mythread,void * x) {
 #ifdef HAVE_LUA5_1_LUA_H	    
     lua_pushstring(td->uniq->lua_state, td->shared->serialized_schema);
     lua_setglobal(td->uniq->lua_state, SLAYER_LUA_SCHEMA_VAR);
+    /* lua_pushstring(td->uniq->lua_state, dbhandle->server[dbhandle->server_offset]);
+       lua_setglobal(td->uniq->lua_state, SLAYER_LUA_SERVER_VAR); */
 #endif
+
     do  { 
 	fetch = NULL;;
 	while( (status = apr_queue_pop(td->shared->in_queue,&fetch)) == APR_EINTR);
@@ -442,10 +468,11 @@ int main(int argc, char **argv) {
     char *reldir = NULL;
     char *output_filter = NULL;
     char *input_filter = NULL;
-    char *lua_preload = NULL;
+    char *mapper_lua = NULL;
+    char *preload_lua = NULL;
 
 
-    while((option = getopt(argc,argv,"t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:")) != EOF) {
+    while((option = getopt(argc,argv,"t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:")) != EOF) {
 	switch(option) {
 	case 'b': basedir = optarg ; break;
 	case 'c': config= optarg; break;
@@ -462,10 +489,12 @@ int main(int argc, char **argv) {
 	case 'n': nslice = (atoi(optarg) == 0 ? 60*24 : atoi(optarg)) ; break;
 	case 'i': tslice = (atoi(optarg) == 0 ? 60 : atoi(optarg)) ; break;
 #ifdef HAVE_LUA5_1_LUA_H
+        case 'm': mapper_lua = optarg; break;
 	case 'f': input_filter = optarg; break;
 	case 'o': output_filter = optarg; break;
-	case 'l': lua_preload = optarg; break;
+	case 'l': preload_lua = optarg; break;
 #else
+	case 'm':
 	case 'f': 
 	case 'o':
 	case 'l':
@@ -479,7 +508,7 @@ int main(int argc, char **argv) {
 
 
     if( server == NULL || config == NULL || thread_count == 0 || port == 0) { 
-	fprintf(stdout,"Usage %s:  -s server[:server]* -c config \n\t[-u username -x password -t thread-count -p port -h ip-to-bind-to -d debug -w socket-timeout -b basedir -I logfile -e error-logfile -n number-of-stats-buckets [defaults to 1 bucket per minute for 24 hours] -i interval-to-update-stats-buckets [ defaults to 60 seconds]] -f lua-input-filter [lua script against incoming json] -o lua-output-filter [lua script to transfom outgoing json -l lua-preload [lua script for each thread to preload, for common libs and includes] -v [prints version and exits] \n",basename(argv[0]));
+	fprintf(stdout,"Usage %s:  -s server[:server]* -c config \n\t[-u username -x password -t thread-count -p port -h ip-to-bind-to -d debug -w socket-timeout -b basedir -I logfile -e error-logfile -n number-of-stats-buckets [defaults to 1 bucket per minute for 24 hours] -i interval-to-update-stats-buckets [ defaults to 60 seconds]] -f lua-input-filter [lua script against incoming json] -o lua-output-filter [lua script to transfom outgoing json -l lua-preload [lua script for each thread to preload, for common libs and includes] -m [ORM mapping lua] -v [prints version and exits] \n",basename(argv[0]));
 	return 0;
     }
 
@@ -505,6 +534,7 @@ int main(int argc, char **argv) {
     apr_threadattr_stacksize_set(thread_attr,4096*10);
 
     td_shared.serialized_schema = NULL;
+    td_shared.serialized_mapping = NULL;
     td_shared.in_queue  = out_queue;
     td_shared.out_queue = in_queue;
     td_shared.user = user;
@@ -515,11 +545,11 @@ int main(int argc, char **argv) {
     td_shared.basedir = basedir;
 #ifdef HAVE_LUA5_1_LUA_H
     if(debug) {
-	printf("lua input filter is '%s', lua output filter is '%s', lua_preload is '%s'\n", input_filter, output_filter, lua_preload);
+	printf("input filter lua file '%s', output filter lua file '%s', preload lua file '%s', mapping lua file '%s' \n", input_filter, output_filter, preload_lua, mapper_lua);
     }
-    td_shared.lua_input_filter = input_filter;
-    td_shared.lua_output_filter = output_filter;
-
+    td_shared.mapper_lua = mapper_lua;
+    td_shared.input_filter_lua = input_filter;
+    td_shared.output_filter_lua = output_filter;
 #endif 
 
     //
@@ -555,8 +585,8 @@ int main(int argc, char **argv) {
 	    printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
 	    lua_pop(td_wrapper->uniq->lua_state, 1);
 	}      
-	if ( lua_preload != NULL ) {
-	    if (luaL_dofile(L, lua_preload)) {
+	if ( preload_lua != NULL ) {
+	    if (luaL_dofile(L, preload_lua)) {
 		printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
 		lua_pop(td_wrapper->uniq->lua_state, 1);
 	    }
