@@ -40,7 +40,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     sleep(1);
     command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
     puts command
-    @@slayer_pid = fork do
+	    @@slayer_pid = fork do
       exec(command)
     end
     sleep(1);
@@ -88,7 +88,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     exec_query(sql) do |f|
       # return the item, the metadata type
       res = f.read
-
+  	  puts res if ENV['DEBUG']
       h = JSON.parse(res)
       assert_equal h["RESULT"]["HEADER"][0], column
 
