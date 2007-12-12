@@ -16,6 +16,7 @@
 #include <apr_file_info.h>
 #ifdef HAVE_LUA5_1_LUA_H
 #include <lua5.1/lua.h>
+#include <lua5.1/lualib.h>
 #include <lua5.1/lauxlib.h>
 #endif 
 #include "dbaccess.h"
@@ -25,51 +26,14 @@
 #include "dbslayer_logging.h"
 #include "dbslayer_stats.h"
 #include "json_parser_lua.h"
-
+#ifdef HAVE_APR_MEMCACHE_H
+#include <apr_memcache-0/apr_memcache.h>
+#define APR_MEMCACHE_DEFAULT_TTL 300000
+#endif
+#include "dbslayer_data_types.h"
 /* $Id: dbslayer.c,v 1.26 2007/07/10 17:55:16 derek Exp $ */
 
 #define SLAYER_SERVER "Server: dbslayer/server beta-10\r\n"
-
-typedef struct _thread_shared_data_t {
-	char *user;
-	char *pass;
-	char *config;
-#ifdef HAVE_LUA5_1_LUA_H
-	char *input_filter_lua;
-	char *output_filter_lua;
-	char *mapper_lua;
-#endif
-	char *serialized_mapping;
-	char *serialized_schema;
-	char *server;
-	char *basedir;
-	dbslayer_log_manager_t *lmanager;
-	dbslayer_log_manager_t *elmanager;
-	dbslayer_stats_t *stats;
-	apr_queue_t *in_queue;
-	apr_queue_t *out_queue;
-	volatile apr_uint32_t shutdown;
-	char *startup_args;
-
-} thread_shared_data_t;
-
-typedef struct _thread_uniq_data_t {
-	unsigned int thread_number;
-#ifdef HAVE_LUA5_1_LUA_H
-	lua_State * lua_state;
-#endif 
-} thread_uniq_data_t;
-
-typedef struct _thread_wrapper_data_t {
-	thread_shared_data_t *shared;
-	thread_uniq_data_t *uniq;
-} thread_wrapper_data_t;
-
-typedef struct _queue_data_t {
-	apr_pool_t *mpool;
-	apr_socket_t *conn;
-	apr_time_t begin_request;
-} queue_data_t;
 
 //Content-type= text/plain; \r\n
 
@@ -190,7 +154,7 @@ int handle_other(thread_shared_data_t *td, queue_data_t *qd, char *equery,
 }
 
 #ifdef HAVE_LUA5_1_LUA_H
-char * handle_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
+char * execute_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 	int status;
 	char *lua_output=NULL;
 	char *output=NULL;
@@ -210,15 +174,15 @@ char * handle_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 }
 #endif 
 
-char * handle_db(thread_shared_data_t *td, queue_data_t *qd,
-		db_handle_t *dbhandle, char *in_json, const char *http_request) {
-	json_value *stmt = decode_json(in_json, qd->mpool);
+char * query_db(thread_shared_data_t *td, queue_data_t *qd,
+		db_handle_t *dbhandle, json_value *stmt, const char *http_request) {
+
 	char *out_json =
 			"{\"ERROR\" : \"we got problems -  couldn't parse your incoming json\"}";
 	if (dbhandle && stmt) {
-		json_value *result = dbexecute(dbhandle, stmt, qd->mpool);
-		json_value *errors = apr_hash_get(result->value.object, "MYSQL_ERROR",
-				APR_HASH_KEY_STRING);
+		json_value *result = db_execute(dbhandle, stmt, qd->mpool);
+		json_value *errors = apr_hash_get(result->value.object, "MYSQL_ERROR", 
+		APR_HASH_KEY_STRING);
 		if (errors) {
 			dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
 					http_request, apr_pstrcat(qd->mpool, "ERROR: ",
@@ -232,37 +196,83 @@ char * handle_db(thread_shared_data_t *td, queue_data_t *qd,
 	return out_json;
 }
 
-int handle_query(thread_shared_data_t *td, thread_uniq_data_t *tu,
+char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
+		db_handle_t *dbhandle, char *in_json, const char *http_request) {
+	char *out_json;
+#ifdef HAVE_APR_MEMCACHE_H
+	json_value *sql=NULL;
+	apr_status_t rv;	
+	apr_size_t len;	
+	long cache_ttl;
+	apr_short_interval_time_t cache_until;
+#endif
+	json_value *stmt = decode_json(in_json, qd->mpool);
+#ifdef HAVE_APR_MEMCACHE_H
+	if( (json_get_sql(stmt, sql) == APR_SUCCESS)
+			&& ( json_wants_caching(stmt) || td->memcache_force) ) {
+		rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string, &out_json, &len, NULL);
+		if ( rv == APR_SUCCESS )
+		{
+			return out_json;
+		}
+	}
+#endif
+	out_json = query_db(td, qd, dbhandle, stmt, http_request);
+#ifdef HAVE_APR_MEMCACHE_H
+	if ( json_wants_caching(stmt) ) {
+		if( json_get_cache_ttl( stmt, &cache_ttl) != APR_SUCCESS ) {
+			cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
+		}
+		cache_until = apr_time_make(cache_ttl,0);
+		rv = apr_memcache_set(td->memcache, sql->value.string, out_json, strlen(out_json), cache_until, 0);
+		dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
+				http_request, "ERROR: Memcache set failed.");
+
+	}
+#endif		
+	return out_json;
+}
+
+char *query_filter(thread_shared_data_t *td, thread_uniq_data_t *tu,
 		queue_data_t *qd, db_handle_t *dbhandle, char *equery,
 		const char *http_request) {
-
 	char *output=NULL;
+
 	char *input = urldecode(qd->mpool, equery);
 #ifdef HAVE_LUA5_1_LUA_H
 	if (td->input_filter_lua == NULL) {
 		output = apr_pstrdup(qd->mpool, input);
 	} else {
-		output = handle_lua(tu->lua_state, td->input_filter_lua, input,
+		output = execute_lua(tu->lua_state, td->input_filter_lua, input,
 				qd->mpool);
 	}
 
-	input = handle_db(td, qd, dbhandle, output, http_request);
+	input = query_cache(td, qd, dbhandle, output, http_request);
 	if (td->output_filter_lua == NULL) {
 		output = apr_pstrdup(qd->mpool, input);
 	} else {
-		output = handle_lua(tu->lua_state, td->output_filter_lua, input,
+		output = execute_lua(tu->lua_state, td->output_filter_lua, input,
 				qd->mpool);
 	}
 
 #else
-	output = handle_db(td, qd, dbhandle, input, http_request);
+	output = query_db(td, qd, dbhandle, input, http_request);
 #endif
+	return output;
+}
+
+int handle_query(thread_shared_data_t *td, thread_uniq_data_t *tu,
+		queue_data_t *qd, db_handle_t *dbhandle, char *equery,
+		const char *http_request) {
+
+	char *output=NULL;
+	output = query_filter(td, tu, qd, dbhandle, equery, http_request);
 
 	handle_response(td, qd, equery, http_request, "200 OK", 200, output);
 	return 0;
 }
 
-int uri_matches(apr_uri_t *uri_info, char *path, apr_pool_t *mpool) {
+int is_uri_match(apr_uri_t *uri_info, char *path, apr_pool_t *mpool) {
 	char *path_cpy= NULL;
 	char *slashed_path= NULL;
 	int retval = 0;
@@ -346,17 +356,17 @@ apr_status_t handle_connection(thread_shared_data_t *td,
 		if (token == NULL || strncmp(token, "HTTP/1", 6) != 0)
 			goto terminate;
 		apr_uri_parse(mpool, meat, &uri_info);
-		if (uri_matches(&uri_info, SLAYER_QUERY_PATH, mpool) && uri_info.query
+		if (is_uri_match(&uri_info, SLAYER_QUERY_PATH, mpool) && uri_info.query
 				!= NULL) {
 			handle_query(td, tu, qd, dbhandle, uri_info.query, http_request);
-		} else if (uri_matches(&uri_info, SLAYER_MAPPING_PATH, mpool)) {
+		} else if (is_uri_match(&uri_info, SLAYER_MAPPING_PATH, mpool)) {
 			handle_mapping(td, tu, mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					td->serialized_mapping);
-		} else if (uri_matches(&uri_info, SLAYER_SCHEMA_PATH, mpool)) {
+		} else if (is_uri_match(&uri_info, SLAYER_SCHEMA_PATH, mpool)) {
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					td->serialized_schema);
-		} else if (uri_matches(&uri_info, SLAYER_SHUTDOWN_PATH, mpool) ) {
+		} else if (is_uri_match(&uri_info, SLAYER_SHUTDOWN_PATH, mpool) ) {
 			apr_sockaddr_t *local_addr;
 			apr_sockaddr_t *remote_addr;
 			char *local_ip;
@@ -374,19 +384,19 @@ apr_status_t handle_connection(thread_shared_data_t *td,
 				handle_response(td, qd, uri_info.path, http_request,
 						"403 Forbidden", 403, "You are not authorized!");
 			}
-		} else if (uri_matches(&uri_info, SLAYER_STATS_PATH, mpool) ) {
+		} else if (is_uri_match(&uri_info, SLAYER_STATS_PATH, mpool) ) {
 			char *stats = dbslayer_stats_tojson(td->stats, qd->mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					stats);
-		} else if (uri_matches(&uri_info, SLAYER_STATS_LOG_PATH, mpool) ) {
+		} else if (is_uri_match(&uri_info, SLAYER_STATS_LOG_PATH, mpool) ) {
 			char *queries = dbslayer_log_get_entries(td->lmanager, qd->mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					queries);
-		} else if (uri_matches(&uri_info, SLAYER_STATS_ERROR_PATH, mpool) ) {
+		} else if (is_uri_match(&uri_info, SLAYER_STATS_ERROR_PATH, mpool) ) {
 			char *errors= dbslayer_log_get_entries(td->elmanager, qd->mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					errors);
-		} else if (uri_matches(&uri_info, SLAYER_STATS_ARGS_PATH, mpool) ) {
+		} else if (is_uri_match(&uri_info, SLAYER_STATS_ARGS_PATH, mpool) ) {
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					td->startup_args);
 		} else {
@@ -407,7 +417,7 @@ void* run_query_thread(apr_thread_t *mythread, void * x) {
 			td->shared->server, td->shared->config, &(td->uniq->thread_number));
 	/* need to set this here, needs a dbhandle */
 	if (td->shared->serialized_schema == NULL) {
-		td->shared->serialized_schema = json_serialize(mpool, dbschema(
+		td->shared->serialized_schema = json_serialize(mpool, db_schema(
 				dbhandle, mpool));
 	}
 #ifdef HAVE_LUA5_1_LUA_H	    
@@ -466,6 +476,11 @@ int main(int argc, char **argv) {
 	char *basedir= NULL;
 	char *logfile= NULL;
 	char *elogfile= NULL;
+#ifdef HAVE_APR_MEMCACHE_H	
+	char *memcache_host = NULL;
+	apr_port_t memcache_port = -1;
+	apr_status_t rv;	
+#endif
 	int port = 9090;
 	int option;
 	int socket_timeout = 10 * 1000* 1000;
@@ -477,6 +492,7 @@ int main(int argc, char **argv) {
 	char *input_filter= NULL;
 	char *mapper_lua= NULL;
 	char *preload_lua= NULL;
+
 
 	while ((option = getopt(argc, argv, "t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:"))
 			!= EOF) {
@@ -542,8 +558,23 @@ int main(int argc, char **argv) {
 			case 'f':
 			case 'o':
 			case 'l':
-			fprintf(stdout, "LUA support unavailable on this build."); return 1; break;
+				fprintf(stdout, "LUA support unavailable on this copy of dbslayer."); 
+				return 1; 
+				break;
+				
 #endif
+#ifdef HAVE_APR_MEMCACHE_H
+			case 'H':
+				memcache_host = optarg;
+			case 'P':
+				memcache_port = (apr_port_t) atoi(optarg);
+#else
+			case 'H':
+			case 'P':
+				fprintf(stdout, "memcache support unavailable on this copy of dbslayer."); 
+				return 1;
+				break;
+#endif				
 		case 'v':
 			fprintf(stdout,"%s",SLAYER_SERVER);
 			return 0;
@@ -553,7 +584,7 @@ int main(int argc, char **argv) {
 	}
 
 	if (server == NULL || config == NULL || thread_count == 0 || port == 0) {
-		fprintf(stdout,"Usage %s:  -s server[:server]* -c config \n\t[-u username -x password -t thread-count -p port -h ip-to-bind-to -d debug -w socket-timeout -b basedir -I logfile -e error-logfile -n number-of-stats-buckets [defaults to 1 bucket per minute for 24 hours] -i interval-to-update-stats-buckets [ defaults to 60 seconds]] -f lua-input-filter [lua script against incoming json] -o lua-output-filter [lua script to transfom outgoing json -l lua-preload [lua script for each thread to preload, for common libs and includes] -m [ORM mapping lua] -v [prints version and exits] \n",basename(argv[0]));
+		fprintf(stdout,"Usage %s:  -s server[:server]* -c config \n\t[-u username -x password -t thread-count -p port -h ip-to-bind-to -d debug -w socket-timeout -b basedir -I logfile -e error-logfile -n number-of-stats-buckets [defaults to 1 bucket per minute for 24 hours] -i interval-to-update-stats-buckets [ defaults to 60 seconds]] -f lua-input-filter [lua script against incoming json] -o lua-output-filter [lua script to transfom outgoing json -l lua-preload [lua script for each thread to preload, for common libs and includes] -m [mapping lua] -H [memcached server] -P [mecached port] -v [prints version and exits] \n",basename(argv[0]));
 		return 0;
 	}
 
@@ -620,6 +651,18 @@ int main(int argc, char **argv) {
 					" ", argv[i], NULL);
 		}
 	}
+#ifdef HAVE_APR_MEMCACHE_H
+	rv = apr_memcache_create(mpool, 16, 0, &td_shared.memcache);
+	rv = apr_memcache_server_create(mpool,
+			memcache_host,
+			memcache_port,
+			0,
+			thread_count,
+			(thread_count * 2),
+			APR_MEMCACHE_DEFAULT_TTL,
+			&td_shared.memcache_server);
+	rv = apr_memcache_add_server(td_shared.memcache, td_shared.memcache_server);
+#endif
 
 	for (i = 0; i < thread_count; i++) {
 		lua_State *L;
@@ -634,7 +677,7 @@ int main(int argc, char **argv) {
 		L = luaL_newstate();
 		td_wrapper->uniq->lua_state = L;
 		luaL_openlibs(L);
-		if (luaL_dostring(L, json_parser_lua()) ) {
+		if (luaL_dostring(L, json_parser_lua())) {
 			printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
 			lua_pop(td_wrapper->uniq->lua_state, 1);
 		}
@@ -658,8 +701,8 @@ int main(int argc, char **argv) {
 			mpool);
 	status = apr_socket_opt_set(conn, APR_SO_REUSEADDR, 1);
 	status = apr_socket_opt_set(conn, APR_SO_NONBLOCK, 1);
-	status = apr_sockaddr_info_get(&addr, hostname ? hostname : APR_ANYADDR,
-			APR_UNSPEC, port, APR_IPV4_ADDR_OK, mpool);
+	status = apr_sockaddr_info_get(&addr, hostname ? hostname : APR_ANYADDR, 
+	APR_UNSPEC, port, APR_IPV4_ADDR_OK, mpool);
 	status = apr_socket_bind(conn, addr);
 	if (status != APR_SUCCESS) {
 		fprintf(stderr,"couldn't bind to %s:%d\n",hostname ? hostname: "*", port);

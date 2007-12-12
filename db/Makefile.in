@@ -64,6 +64,7 @@ APRCONFIG = @APRCONFIG@
 APR_CFLAGS = @APR_CFLAGS@
 APR_INCLUDES = @APR_INCLUDES@
 APR_LIBS = @APR_LIBS@
+APR_MEMCACHE_LIBS = @APR_MEMCACHE_LIBS@
 APUCONFIG = @APUCONFIG@
 APU_INCLUDES = @APU_INCLUDES@
 APU_LIBS = @APU_LIBS@
@@ -174,9 +175,9 @@ $(srcdir)/Makefile.in:  $(srcdir)/Makefile.am  $(am__configure_deps)
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign  db/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --gnu  db/Makefile'; \
 	cd $(top_srcdir) && \
-	  $(AUTOMAKE) --foreign  db/Makefile
+	  $(AUTOMAKE) --gnu  db/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \

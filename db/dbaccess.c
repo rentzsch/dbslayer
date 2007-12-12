@@ -10,8 +10,8 @@ db_handle_t * db_handle_reattach(db_handle_t *handle) {
 		handle->db = mysql_init(NULL);
 		mysql_options(handle->db, MYSQL_READ_DEFAULT_FILE, handle->config);
 		mysql_options(handle->db, MYSQL_READ_DEFAULT_GROUP, handle->server[ct]);
-		if (mysql_real_connect(handle->db, NULL, handle->user, handle->pass,
-				NULL, 0, NULL, CLIENT_MULTI_STATEMENTS) != NULL) {
+		if (mysql_real_connect(handle->db, NULL, handle->user, handle->pass, 
+		NULL, 0, NULL, CLIENT_MULTI_STATEMENTS) != NULL) {
 			handle->server_offset = ct;
 			return handle;
 		}
@@ -22,8 +22,8 @@ db_handle_t * db_handle_reattach(db_handle_t *handle) {
 		handle->db = mysql_init(NULL);
 		mysql_options(handle->db, MYSQL_READ_DEFAULT_FILE, handle->config);
 		mysql_options(handle->db, MYSQL_READ_DEFAULT_GROUP, handle->server[ct]);
-		if (mysql_real_connect(handle->db, NULL, handle->user, handle->pass,
-				NULL, 0, NULL, CLIENT_MULTI_STATEMENTS) != NULL) {
+		if (mysql_real_connect(handle->db, NULL, handle->user, handle->pass, 
+		NULL, 0, NULL, CLIENT_MULTI_STATEMENTS) != NULL) {
 			handle->server_offset = ct;
 			return handle;
 		}
@@ -190,23 +190,23 @@ char * field_to_string(MYSQL_FIELD field, apr_pool_t *mpool) {
 }
 
 json_value * col_to_json(MYSQL_FIELD field, char * val, apr_pool_t *mpool) {
-	json_value * ret = NULL;
+	json_value * ret= NULL;
 	if ( !val) {
-		return json_null_create(mpool);
+		return json_create_null(mpool);
 	}
 	switch (field.type) {
 	case MYSQL_TYPE_TINY:
 	case MYSQL_TYPE_SHORT:
 	case MYSQL_TYPE_LONG:
 	case MYSQL_TYPE_INT24:
-		ret = json_long_create(mpool, atol(val));
+		ret = json_create_long(mpool, atol(val));
 		break;
 	case MYSQL_TYPE_DECIMAL:
 	case MYSQL_TYPE_NEWDECIMAL:
 	case MYSQL_TYPE_DOUBLE:
 	case MYSQL_TYPE_FLOAT:
 	case MYSQL_TYPE_LONGLONG:
-		ret = json_double_create(mpool, atof(val));
+		ret = json_create_double(mpool, atof(val));
 		break;
 	case MYSQL_TYPE_BIT:
 	case MYSQL_TYPE_TIMESTAMP:
@@ -218,7 +218,7 @@ json_value * col_to_json(MYSQL_FIELD field, char * val, apr_pool_t *mpool) {
 	case MYSQL_TYPE_VAR_STRING:
 	case MYSQL_TYPE_NEWDATE:
 	case MYSQL_TYPE_VARCHAR:
-		ret = json_string_create(mpool, val);
+		ret = json_create_string(mpool, val);
 		break;
 	case MYSQL_TYPE_BLOB:
 	case MYSQL_TYPE_TINY_BLOB:
@@ -228,16 +228,16 @@ json_value * col_to_json(MYSQL_FIELD field, char * val, apr_pool_t *mpool) {
 		//http://www.mysql.org/doc/refman/5.1/en/c-api-datatypes.html
 		if (field.charsetnr == 63) {
 			/**BINARY - NEEDS TO B64 **/
-			ret = json_null_create(mpool);
+			ret = json_create_null(mpool);
 		} else {
-			ret = json_string_create(mpool, val);
+			ret = json_create_string(mpool, val);
 		}
 		break;
 	case MYSQL_TYPE_SET:
 	case MYSQL_TYPE_ENUM:
 	case MYSQL_TYPE_GEOMETRY:
 	case MYSQL_TYPE_NULL:
-		ret = json_null_create(mpool);
+		ret = json_create_null(mpool);
 		break;
 	}
 	return ret;
@@ -245,61 +245,61 @@ json_value * col_to_json(MYSQL_FIELD field, char * val, apr_pool_t *mpool) {
 
 json_value * result_to_json(MYSQL_RES * myresult, apr_pool_t *mpool) {
 	MYSQL_FIELD *fields;
-	json_value *result = json_object_create(mpool);
+	json_value *result = json_create_object(mpool);
 	unsigned int num_fields;
 	unsigned int i;
 	num_fields = mysql_num_fields(myresult);
 	fields = mysql_fetch_fields(myresult);
-	json_value *header = json_array_create(mpool, num_fields);
-	json_object_add(result, "HEADER", header);
-	json_value *coltypes = json_array_create(mpool, num_fields);
-	json_object_add(result, "TYPES", coltypes);
+	json_value *header = json_create_array(mpool, num_fields);
+	json_add_object(result, "HEADER", header);
+	json_value *coltypes = json_create_array(mpool, num_fields);
+	json_add_object(result, "TYPES", coltypes);
 	for (i = 0; i < num_fields; i++) {
-		json_array_append(header, json_string_create(mpool, fields[i].name));
-		json_array_append(coltypes, json_string_create(mpool, field_to_string(
+		json_append_array(header, json_create_string(mpool, fields[i].name));
+		json_append_array(coltypes, json_create_string(mpool, field_to_string(
 				fields[i], mpool)));
 
-		json_value *rows = json_array_create(mpool, SLAYER_MAX_ROWS);
-		json_object_add(result, "ROWS", rows);
+		json_value *rows = json_create_array(mpool, SLAYER_MAX_ROWS);
+		json_add_object(result, "ROWS", rows);
 		MYSQL_ROW myrow;
 		while ( (myrow = mysql_fetch_row(myresult)) !=NULL) {
-			json_value *orow = json_array_create(mpool, num_fields);
-			json_array_append(rows, orow);
+			json_value *orow = json_create_array(mpool, num_fields);
+			json_append_array(rows, orow);
 			//unsigned long *lengths = mysql_fetch_lengths(myresult);
 			for (i = 0; i < num_fields; i++) {
-				json_array_append(orow, col_to_json(fields[i], myrow[i], mpool));
+				json_append_array(orow, col_to_json(fields[i], myrow[i], mpool));
 			}
 		}
 	}
 	return result;
 }
 
-json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
+json_value * db_schema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 	int num_tables = 0;
 	char *tables[1024];
-	MYSQL_RES *res = NULL;
+	MYSQL_RES *res= NULL;
 	int num_fields = 0;
-	MYSQL_FIELD *fields = NULL;
-	json_value *out = NULL;
-	json_value *result = NULL;
-	json_value *schema = NULL;
+	MYSQL_FIELD *fields= NULL;
+	json_value *out= NULL;
+	json_value *result= NULL;
+	json_value *schema= NULL;
 	MYSQL_ROW row;
 	int i=0;
 	int n=0;
-	out = json_object_create(mpool);
+	out = json_create_object(mpool);
 
 	res = mysql_list_tables(dbhandle->db, NULL);
 	if (res == NULL) {
-		json_object_add(out, "MYSQL_ERROR", json_string_create(mpool,
+		json_add_object(out, "MYSQL_ERROR", json_create_string(mpool,
 				mysql_error(dbhandle->db)));
-		json_object_add(out, "MYSQL_ERRNO", json_long_create(mpool,
+		json_add_object(out, "MYSQL_ERRNO", json_create_long(mpool,
 				mysql_errno(dbhandle->db)));
-		json_object_add(out, "SERVER", json_string_create(mpool,
+		json_add_object(out, "SERVER", json_create_string(mpool,
 				dbhandle->server[dbhandle->server_offset]));
 		return out;
 	}
 
-	schema = json_object_create(mpool);
+	schema = json_create_object(mpool);
 
 	while ( (row = mysql_fetch_row(res))) {
 		tables[num_tables] = apr_pstrdup(mpool, (char *)row[0]);
@@ -307,104 +307,103 @@ json_value * dbschema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 	}
 	mysql_free_result(res);
 	for (i=0; i < num_tables; i++) {
-		json_value *table = json_object_create(mpool);
+		json_value *table = json_create_object(mpool);
 		res = mysql_list_fields(dbhandle->db, tables[i], NULL);
 		if (res == NULL) {
-			json_object_add(out, "MYSQL_ERROR", json_string_create(mpool,
+			json_add_object(out, "MYSQL_ERROR", json_create_string(mpool,
 					mysql_error(dbhandle->db)));
-			json_object_add(out, "MYSQL_ERRNO", json_long_create(mpool,
+			json_add_object(out, "MYSQL_ERRNO", json_create_long(mpool,
 					mysql_errno(dbhandle->db)));
-			json_object_add(out, "SERVER", json_string_create(mpool,
+			json_add_object(out, "SERVER", json_create_string(mpool,
 					dbhandle->server[dbhandle->server_offset]));
-			json_object_add(out, "SUCCESS", json_boolean_create(mpool, 0));
+			json_add_object(out, "SUCCESS", json_create_boolean(mpool, 0));
 			return out;
 		}
 		num_fields = mysql_num_fields(res);
 		fields = mysql_fetch_fields(res);
 		for (n=0; n < num_fields; n++) {
 			char * typename = field_to_string(fields[n], mpool);
-			json_object_add(table, apr_pstrdup(mpool, fields[n].name),
-					json_string_create(mpool, typename));
+			json_add_object(table, apr_pstrdup(mpool, fields[n].name),
+					json_create_string(mpool, typename));
 		}
 		mysql_free_result(res);
 
-		json_object_add(schema, tables[i], table);
+		json_add_object(schema, tables[i], table);
 	}
-	json_object_add(out, "SCHEMA", schema);
-	json_object_add(out, "SUCCESS", json_boolean_create(mpool, 1));
-	json_object_add(out, "SERVER", json_string_create(mpool,
+	json_add_object(out, "SCHEMA", schema);
+	json_add_object(out, "SUCCESS", json_create_boolean(mpool, 1));
+	json_add_object(out, "SERVER", json_create_string(mpool,
 			dbhandle->server[dbhandle->server_offset]));
 	return out;
 }
 
-json_value * dbexecute(db_handle_t *dbhandle, json_value *injson,
+
+json_value * db_execute(db_handle_t *dbhandle, json_value *injson,
 		apr_pool_t *mpool) {
-	json_value *out = json_object_create(mpool);
-	json_value *sql = NULL;
-	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
-			injson->value.object, "SQL", APR_HASH_KEY_STRING)) !=NULL
-			&& sql->type == JSON_STRING) {
+	json_value *out = json_create_object(mpool);
+	json_value *sql= NULL;
+	if (json_get_string(injson, "SQL", sql) == APR_SUCCESS) {
 		if (mysql_query(dbhandle->db, sql->value.string)) {
 			/** NEED TO CHECK FOR BETTER ERROR TO MAKE SURE IT IS A CONNECTION ISSUE **/
 			if (db_handle_reattach(dbhandle) == NULL || mysql_query(
 					dbhandle->db, sql->value.string)) {
-				json_object_add(out, "MYSQL_ERROR", json_string_create(mpool,
+				json_add_object(out, "MYSQL_ERROR", json_create_string(mpool,
 						mysql_error(dbhandle->db)));
-				json_object_add(out, "MYSQL_ERRNO", json_long_create(mpool,
+				json_add_object(out, "MYSQL_ERRNO", json_create_long(mpool,
 						mysql_errno(dbhandle->db)));
-				json_object_add(out, "SERVER", json_string_create(mpool,
+				json_add_object(out, "SERVER", json_create_string(mpool,
 						dbhandle->server[dbhandle->server_offset]));
 				return out;
 			}
 		}
-		json_value *all_result = NULL;
-		json_value *sql_result = NULL;
+		json_value *all_result= NULL;
+		json_value *sql_result= NULL;
 		int status = 0;
 		do {
 			MYSQL_RES *myresult = mysql_store_result(dbhandle->db);
 			if (myresult == NULL) {
 				/** ERROR OCCURED ***/
 				if (mysql_errno(dbhandle->db)) {
-					json_object_add(out, "SUCCESS", json_boolean_create(mpool,
+					json_add_object(out, "SUCCESS", json_create_boolean(mpool,
 							0));
-					json_object_add(out, "MYSQL_ERROR", json_string_create(
+					json_add_object(out, "MYSQL_ERROR", json_create_string(
 							mpool, mysql_error(dbhandle->db)));
-					json_object_add(out, "MYSQL_ERRNO", json_long_create(mpool,
+					json_add_object(out, "MYSQL_ERRNO", json_create_long(mpool,
 							mysql_errno(dbhandle->db)));
-					json_object_add(out, "SERVER", json_string_create(mpool,
+					json_add_object(out, "SERVER", json_create_string(mpool,
 							dbhandle->server[dbhandle->server_offset]));
 				} else {
 					/** SUCCESS NO RESULT RETURNED ie UPDATE | DELETE | INSERT ***/
 					;
 					if (sql_result && all_result) {
-						sql_result = json_object_create(mpool);
-						json_object_add(sql_result, "SUCCESS",
-								json_boolean_create(mpool, 1));
-						json_array_append(all_result, sql_result);
+						sql_result = json_create_object(mpool);
+						json_add_object(sql_result, "SUCCESS",
+								json_create_boolean(mpool, 1));
+						json_append_array(all_result, sql_result);
 					} else if (sql_result && !all_result) {
-						all_result = json_array_create(mpool, 5);
-						json_array_append(all_result, sql_result);
-						sql_result = json_object_create(mpool);
-						json_object_add(sql_result, "SUCCESS",
-								json_boolean_create(mpool, 1));
-						json_array_append(all_result, sql_result);
-						json_object_add(out, "RESULT", all_result);
+						all_result = json_create_array(mpool, 5);
+						json_append_array(all_result, sql_result);
+						sql_result = json_create_object(mpool);
+						json_add_object(sql_result, "SUCCESS",
+								json_create_boolean(mpool, 1));
+						json_append_array(all_result, sql_result);
+						json_add_object(out, "RESULT", all_result);
 					} else {
-						sql_result = json_object_create(mpool);
-						json_object_add(sql_result, "SUCCESS",
-								json_boolean_create(mpool, 1));
+						sql_result = json_create_object(mpool);
+						json_add_object(sql_result, "SUCCESS",
+								json_create_boolean(mpool, 1));
 					}
 				}
 			} else {
 				if (sql_result && all_result) {
-					json_array_append(all_result, result_to_json(myresult,
+					json_append_array(all_result, result_to_json(myresult,
 							mpool));
 				} else if (sql_result && !all_result) {
-					all_result = json_array_create(mpool, 5);
-					json_array_append(all_result, sql_result);
-					json_array_append(all_result, result_to_json(myresult,
+					all_result = json_create_array(mpool, 5);
+					json_append_array(all_result, sql_result);
+					json_append_array(all_result, result_to_json(myresult,
 							mpool));
-					json_object_add(out, "RESULT", all_result);
+					json_add_object(out, "RESULT", all_result);
 				} else {
 					sql_result = result_to_json(myresult, mpool);
 				}
@@ -415,86 +414,86 @@ json_value * dbexecute(db_handle_t *dbhandle, json_value *injson,
 		} while (status ==0);
 
 		if (sql_result && !all_result) {
-			json_object_add(out, "RESULT", sql_result);
+			json_add_object(out, "RESULT", sql_result);
 		}
-		json_object_add(out, "SERVER", json_string_create(mpool,
+		json_add_object(out, "SERVER", json_create_string(mpool,
 				dbhandle->server[dbhandle->server_offset]));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "STAT", APR_HASH_KEY_STRING)) !=NULL
 			&& sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_object_add(out, "STAT", json_string_create(mpool,
+		json_add_object(out, "STAT", json_create_string(mpool,
 				mysql_stat(dbhandle->db)));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "CLIENT_INFO", APR_HASH_KEY_STRING)) !=NULL
 			&& sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_object_add(out, "CLIENT_INFO", json_string_create(mpool,
+		json_add_object(out, "CLIENT_INFO", json_create_string(mpool,
 				mysql_get_client_info()));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "HOST_INFO", APR_HASH_KEY_STRING)) !=NULL
 			&& sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_object_add(out, "HOST_INFO", json_string_create(mpool,
+		json_add_object(out, "HOST_INFO", json_create_string(mpool,
 				mysql_get_host_info(dbhandle->db)));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "SERVER_VERSION", APR_HASH_KEY_STRING))
 			!=NULL && sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_object_add(out, "SERVER_VERSION", json_long_create(mpool,
+		json_add_object(out, "SERVER_VERSION", json_create_long(mpool,
 				mysql_get_server_version(dbhandle->db)));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "CLIENT_VERSION", APR_HASH_KEY_STRING))
 			!=NULL && sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_object_add(out, "CLIENT_VERSION", json_long_create(mpool,
+		json_add_object(out, "CLIENT_VERSION", json_create_long(mpool,
 				mysql_get_client_version()));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
-			injson->value.object, "SLAYER_DEBUG_RETURN_INPUT",
+			injson->value.object, "SLAYER_DEBUG_RETURN_INPUT", 
 			APR_HASH_KEY_STRING)) !=NULL && sql->type == JSON_BOOLEAN
 			&& sql->value.boolean) {
-		json_object_add(out, "SLAYER_DEBUG_RETURN_INPUT", injson);
+		json_add_object(out, "SLAYER_DEBUG_RETURN_INPUT", injson);
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "SERVER_NAME", APR_HASH_KEY_STRING)) !=NULL
 			&& sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_object_add(out, "SERVER_NAME", json_string_create(mpool,
+		json_add_object(out, "SERVER_NAME", json_create_string(mpool,
 				dbhandle->server[dbhandle->server_offset]));
 	}
 	if (injson->type == JSON_OBJECT && (sql = (json_value*)apr_hash_get(
 			injson->value.object, "SLAYER_HELP", APR_HASH_KEY_STRING)) !=NULL
 			&& sql->type == JSON_BOOLEAN && sql->value.boolean) {
-		json_value *commands = json_object_create(mpool);
-		json_object_add(out, "SLAYER_HELP", commands);
-		json_object_add(
+		json_value *commands = json_create_object(mpool);
+		json_add_object(out, "SLAYER_HELP", commands);
+		json_add_object(
 				commands,
 				"SQL",
-				json_string_create(mpool,
+				json_create_string(mpool,
 						"in(string)[sql statement to execute] : out()eturns results in RESULTS node"));
-		json_object_add(commands, "STAT", json_string_create(mpool,
+		json_add_object(commands, "STAT", json_create_string(mpool,
 				"in(boolean) : out(string) result of mysql_stat()"));
-		json_object_add(commands, "CLIENT_INFO", json_string_create(mpool,
+		json_add_object(commands, "CLIENT_INFO", json_create_string(mpool,
 				"in(boolean) : out(string) result of mysql_get_client_info()"));
-		json_object_add(commands, "HOST_INFO", json_string_create(mpool,
+		json_add_object(commands, "HOST_INFO", json_create_string(mpool,
 				"in(boolean) : out(string) result of mysql_get_host_info()"));
-		json_object_add(commands, "SERVER_VERSION", json_string_create(mpool,
+		json_add_object(commands, "SERVER_VERSION", json_create_string(mpool,
 				"in(boolean) : out(long) result of mysql_server_version()"));
-		json_object_add(commands, "CLIENT_VERSION", json_string_create(mpool,
+		json_add_object(commands, "CLIENT_VERSION", json_create_string(mpool,
 				"in(boolean) : out(long) result of mysql_client_version()"));
-		json_object_add(commands, "SLAYER_HELP", json_string_create(mpool,
+		json_add_object(commands, "SLAYER_HELP", json_create_string(mpool,
 				"in(boolean) : true ? returns this result"));
-		json_object_add(commands, "SLAYER_DEBUG_RETURN_INPUT",
-				json_string_create(mpool,
+		json_add_object(commands, "SLAYER_DEBUG_RETURN_INPUT",
+				json_create_string(mpool,
 						"in(boolean) : true ? returns this result"));
-		json_object_add(
+		json_add_object(
 				commands,
 				"SERVER_NAME",
-				json_string_create(mpool,
+				json_create_string(mpool,
 						"in(boolean) : true ? returns stanza from the -s option that was used"));
 	}
 	if (out->type == JSON_OBJECT && apr_hash_count(out->value.object) == 0) {
-		json_object_add(out, "ERROR", json_string_create(mpool,
+		json_add_object(out, "ERROR", json_create_string(mpool,
 				"TRY {\"SLAYER_HELP\":true } "));
 	}
 	return out;

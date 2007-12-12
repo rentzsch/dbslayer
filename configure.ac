@@ -105,12 +105,18 @@ AC_MSG_CHECKING(for MySQL includes)
 AC_MSG_RESULT($MYSQL_INCLUDES)
 AC_MSG_CHECKING(for MySQL libraries)
 AC_MSG_RESULT($MYSQL_LIBS)
-
-
-
+#apr_memcache support
+AC_CHECK_LIB(apr_memcache, apr_memcache_create, [APR_MEMCACHE_LIBS='-lapr_memcache'])
+AC_CHECK_LIB(apr_memcache, apr_memcache_create, [AC_DEFINE(HAVE_APR_MEMCACHE_H, 1)])
+AC_SUBST(APR_MEMCACHE_LIBS)
+#AC_CHECK_HEADERS([apr_memcache])
+AC_MSG_CHECKING(for apr_memcache)
+AC_MSG_RESULT($APR_MEMCACHE_LIBS)
+#LUA support
 AC_CHECK_LIB(lua5.1, lua_newstate, [LUA_LIBS='-llua5.1 -llua5.1-filesystem'])
 AC_MSG_CHECKING(for lua includes)
-AC_CHECK_HEADERS([lua5.1/lua.h lua5.1/lauxlib.h])
+AC_CHECK_HEADERS([lua5.1/lua.h lua5.1/lauxlib.h lua5.1/lualib.h])
+AC_MSG_RESULT($LUA_INCLUDES_FOUND)
 AC_SUBST(LUA_LIBS)
 LUA_INCLUDES="-I lua"
 for file in lua/*.lua; do 

@@ -701,6 +701,7 @@ AMDEPBACKSLASH
 CCDEPMODE
 am__fastdepCC_TRUE
 am__fastdepCC_FALSE
+APR_MEMCACHE_LIBS
 CPP
 GREP
 EGREP
@@ -2486,9 +2487,7 @@ echo "${ECHO_T}$MYSQL_INCLUDES" >&6; }
 echo $ECHO_N "checking for MySQL libraries... $ECHO_C" >&6; }
 { echo "$as_me:$LINENO: result: $MYSQL_LIBS" >&5
 echo "${ECHO_T}$MYSQL_LIBS" >&6; }
-
-
-
+#apr_memcache support
 DEPDIR="${am__leading_dot}deps"
 
 ac_config_commands="$ac_config_commands depfiles"
@@ -3579,6 +3578,146 @@ fi
 
 
 
+{ echo "$as_me:$LINENO: checking for apr_memcache_create in -lapr_memcache" >&5
+echo $ECHO_N "checking for apr_memcache_create in -lapr_memcache... $ECHO_C" >&6; }
+if test "${ac_cv_lib_apr_memcache_apr_memcache_create+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lapr_memcache  $LIBS"
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char apr_memcache_create ();
+int
+main ()
+{
+return apr_memcache_create ();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (ac_try="$ac_link"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_link") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_c_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest$ac_exeext &&
+       $as_test_x conftest$ac_exeext; then
+  ac_cv_lib_apr_memcache_apr_memcache_create=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+	ac_cv_lib_apr_memcache_apr_memcache_create=no
+fi
+
+rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
+      conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ echo "$as_me:$LINENO: result: $ac_cv_lib_apr_memcache_apr_memcache_create" >&5
+echo "${ECHO_T}$ac_cv_lib_apr_memcache_apr_memcache_create" >&6; }
+if test $ac_cv_lib_apr_memcache_apr_memcache_create = yes; then
+  APR_MEMCACHE_LIBS='-lapr_memcache'
+fi
+
+{ echo "$as_me:$LINENO: checking for apr_memcache_create in -lapr_memcache" >&5
+echo $ECHO_N "checking for apr_memcache_create in -lapr_memcache... $ECHO_C" >&6; }
+if test "${ac_cv_lib_apr_memcache_apr_memcache_create+set}" = set; then
+  echo $ECHO_N "(cached) $ECHO_C" >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lapr_memcache  $LIBS"
+cat >conftest.$ac_ext <<_ACEOF
+/* confdefs.h.  */
+_ACEOF
+cat confdefs.h >>conftest.$ac_ext
+cat >>conftest.$ac_ext <<_ACEOF
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char apr_memcache_create ();
+int
+main ()
+{
+return apr_memcache_create ();
+  ;
+  return 0;
+}
+_ACEOF
+rm -f conftest.$ac_objext conftest$ac_exeext
+if { (ac_try="$ac_link"
+case "(($ac_try" in
+  *\"* | *\`* | *\\*) ac_try_echo=\$ac_try;;
+  *) ac_try_echo=$ac_try;;
+esac
+eval "echo \"\$as_me:$LINENO: $ac_try_echo\"") >&5
+  (eval "$ac_link") 2>conftest.er1
+  ac_status=$?
+  grep -v '^ *+' conftest.er1 >conftest.err
+  rm -f conftest.er1
+  cat conftest.err >&5
+  echo "$as_me:$LINENO: \$? = $ac_status" >&5
+  (exit $ac_status); } && {
+	 test -z "$ac_c_werror_flag" ||
+	 test ! -s conftest.err
+       } && test -s conftest$ac_exeext &&
+       $as_test_x conftest$ac_exeext; then
+  ac_cv_lib_apr_memcache_apr_memcache_create=yes
+else
+  echo "$as_me: failed program was:" >&5
+sed 's/^/| /' conftest.$ac_ext >&5
+
+	ac_cv_lib_apr_memcache_apr_memcache_create=no
+fi
+
+rm -f core conftest.err conftest.$ac_objext conftest_ipa8_conftest.oo \
+      conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ echo "$as_me:$LINENO: result: $ac_cv_lib_apr_memcache_apr_memcache_create" >&5
+echo "${ECHO_T}$ac_cv_lib_apr_memcache_apr_memcache_create" >&6; }
+if test $ac_cv_lib_apr_memcache_apr_memcache_create = yes; then
+  cat >>confdefs.h <<\_ACEOF
+#define HAVE_APR_MEMCACHE_H 1
+_ACEOF
+
+fi
+
+
+#AC_CHECK_HEADERS([apr_memcache])
+{ echo "$as_me:$LINENO: checking for apr_memcache" >&5
+echo $ECHO_N "checking for apr_memcache... $ECHO_C" >&6; }
+{ echo "$as_me:$LINENO: result: $APR_MEMCACHE_LIBS" >&5
+echo "${ECHO_T}$APR_MEMCACHE_LIBS" >&6; }
+#LUA support
 { echo "$as_me:$LINENO: checking for lua_newstate in -llua5.1" >&5
 echo $ECHO_N "checking for lua_newstate in -llua5.1... $ECHO_C" >&6; }
 if test "${ac_cv_lib_lua5_1_lua_newstate+set}" = set; then
@@ -4284,7 +4423,8 @@ done
 
 
 
-for ac_header in lua5.1/lua.h lua5.1/lauxlib.h
+
+for ac_header in lua5.1/lua.h lua5.1/lauxlib.h lua5.1/lualib.h
 do
 as_ac_Header=`echo "ac_cv_header_$ac_header" | $as_tr_sh`
 if { as_var=$as_ac_Header; eval "test \"\${$as_var+set}\" = set"; }; then
@@ -4423,6 +4563,8 @@ fi
 
 done
 
+{ echo "$as_me:$LINENO: result: $LUA_INCLUDES_FOUND" >&5
+echo "${ECHO_T}$LUA_INCLUDES_FOUND" >&6; }
 
 LUA_INCLUDES="-I lua"
 for file in lua/*.lua; do
@@ -7229,6 +7371,7 @@ AMDEPBACKSLASH!$AMDEPBACKSLASH$ac_delim
 CCDEPMODE!$CCDEPMODE$ac_delim
 am__fastdepCC_TRUE!$am__fastdepCC_TRUE$ac_delim
 am__fastdepCC_FALSE!$am__fastdepCC_FALSE$ac_delim
+APR_MEMCACHE_LIBS!$APR_MEMCACHE_LIBS$ac_delim
 CPP!$CPP$ac_delim
 GREP!$GREP$ac_delim
 EGREP!$EGREP$ac_delim
@@ -7239,7 +7382,7 @@ POW_LIB!$POW_LIB$ac_delim
 LTLIBOBJS!$LTLIBOBJS$ac_delim
 _ACEOF
 
-  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 94; then
+  if test `sed -n "s/.*$ac_delim\$/X/p" conf$$subs.sed | grep -c X` = 95; then
     break
   elif $ac_last_try; then
     { { echo "$as_me:$LINENO: error: could not make $CONFIG_STATUS" >&5

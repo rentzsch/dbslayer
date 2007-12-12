@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
 	if (query) {
 		encode_json(query);
 		printf("\n");
-		json_value *result = dbexecute(handle, query, mpool);
+		json_value *result = db_execute(handle, query, mpool);
 		encode_json(result);
 		printf("\n");
 	}
