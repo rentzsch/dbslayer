@@ -2,5 +2,6 @@
 port            = 3306
 socket          = /var/run/mysqld/mysqld.sock
 host		= localhost
+user		= slayer
 database	= slayer_test
-password	= testing
+password	= slayer

@@ -281,7 +281,6 @@ json_value * db_schema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 	int num_fields = 0;
 	MYSQL_FIELD *fields= NULL;
 	json_value *out= NULL;
-	json_value *result= NULL;
 	json_value *schema= NULL;
 	MYSQL_ROW row;
 	int i=0;
@@ -341,8 +340,8 @@ json_value * db_schema(db_handle_t *dbhandle, apr_pool_t *mpool) {
 json_value * db_execute(db_handle_t *dbhandle, json_value *injson,
 		apr_pool_t *mpool) {
 	json_value *out = json_create_object(mpool);
-	json_value *sql= NULL;
-	if (json_get_string(injson, "SQL", sql) == APR_SUCCESS) {
+	json_value *sql = NULL;
+	if (json_get_sql(injson, &sql) == APR_SUCCESS) {
 		if (mysql_query(dbhandle->db, sql->value.string)) {
 			/** NEED TO CHECK FOR BETTER ERROR TO MAKE SURE IT IS A CONNECTION ISSUE **/
 			if (db_handle_reattach(dbhandle) == NULL || mysql_query(

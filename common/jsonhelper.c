@@ -52,16 +52,17 @@ void  json_append_array(json_value *jarray,  json_value *value) {
 	*((json_value**)(apr_array_push(jarray->value.array))) = value;
 }
 
-apr_status_t json_get_string(json_value *injson, const char *key, json_value *value)
+apr_status_t json_get_string(json_value *injson, const char *key, json_value **value)
 {
-	if (injson->type == JSON_OBJECT && (value = (json_value*)apr_hash_get(
+	apr_status_t retval;
+	if (injson->type == JSON_OBJECT && (*value = (json_value*)apr_hash_get(
 				injson->value.object, key, APR_HASH_KEY_STRING)) !=NULL
-				&& value->type == JSON_STRING) {
-		return APR_SUCCESS;
+				&& (*value)->type == JSON_STRING) {
+		retval = APR_SUCCESS;
 	} else {
-		return APR_EINVAL;
+		retval = APR_EINVAL;
 	}
-
+	return retval;
 }
 
 apr_status_t json_get_long(json_value *injson, const char *key, long *num) {
@@ -69,14 +70,16 @@ apr_status_t json_get_long(json_value *injson, const char *key, long *num) {
 	if (injson->type == JSON_OBJECT && (value = (json_value*)apr_hash_get(
 				injson->value.object, key, APR_HASH_KEY_STRING)) !=NULL
 				&& value->type == JSON_LONG) {
-		*num = value->value.lnumber;
+		num = &value->value.lnumber;
 		return APR_SUCCESS;
 	}
 	return APR_EINVAL;
 }
 
-apr_status_t json_get_sql(json_value *injson, json_value *sql) {
-	return json_get_string(injson, JSON_KEY_SQL, sql);
+apr_status_t json_get_sql(json_value *injson, json_value **sql) {
+	apr_status_t ret;
+	ret = json_get_string(injson, "SQL", sql);
+	return ret;
 }
 
 apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl ) {

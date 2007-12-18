@@ -201,33 +201,38 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 	char *out_json;
 #ifdef HAVE_APR_MEMCACHE_H
 	json_value *sql=NULL;
-	apr_status_t rv;	
-	apr_size_t len;	
+	apr_status_t rv;
+	apr_size_t len;
 	long cache_ttl;
 	apr_short_interval_time_t cache_until;
 #endif
 	json_value *stmt = decode_json(in_json, qd->mpool);
 #ifdef HAVE_APR_MEMCACHE_H
-	if( (json_get_sql(stmt, sql) == APR_SUCCESS)
-			&& ( json_wants_caching(stmt) || td->memcache_force) ) {
-		rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string, &out_json, &len, NULL);
-		if ( rv == APR_SUCCESS )
-		{
-			return out_json;
+	if (td->memcache != NULL) {
+		if ( (json_get_sql(stmt, sql) == APR_SUCCESS)
+				&& (json_wants_caching(stmt) || td->memcache_force)) {
+			rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string,
+					&out_json, &len, NULL);
+			if (rv == APR_SUCCESS) {
+				return out_json;
+			}
 		}
 	}
 #endif
 	out_json = query_db(td, qd, dbhandle, stmt, http_request);
 #ifdef HAVE_APR_MEMCACHE_H
-	if ( json_wants_caching(stmt) ) {
-		if( json_get_cache_ttl( stmt, &cache_ttl) != APR_SUCCESS ) {
-			cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
-		}
-		cache_until = apr_time_make(cache_ttl,0);
-		rv = apr_memcache_set(td->memcache, sql->value.string, out_json, strlen(out_json), cache_until, 0);
-		dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
-				http_request, "ERROR: Memcache set failed.");
+	if (td->memcache != NULL) {
+		if (json_wants_caching(stmt) ) {
+			if (json_get_cache_ttl(stmt, &cache_ttl) != APR_SUCCESS) {
+				cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
+			}
+			cache_until = apr_time_make(cache_ttl,0);
+			rv = apr_memcache_set(td->memcache, sql->value.string, out_json,
+					strlen(out_json), cache_until, 0);
+			dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
+					http_request, "ERROR: Memcache set failed.");
 
+		}
 	}
 #endif		
 	return out_json;
@@ -256,7 +261,7 @@ char *query_filter(thread_shared_data_t *td, thread_uniq_data_t *tu,
 	}
 
 #else
-	output = query_db(td, qd, dbhandle, input, http_request);
+	output = query_cache(td, qd, dbhandle, input, http_request);
 #endif
 	return output;
 }
@@ -477,9 +482,9 @@ int main(int argc, char **argv) {
 	char *logfile= NULL;
 	char *elogfile= NULL;
 #ifdef HAVE_APR_MEMCACHE_H	
-	char *memcache_host = NULL;
+	char *memcache_host= NULL;
 	apr_port_t memcache_port = -1;
-	apr_status_t rv;	
+	apr_status_t rv;
 #endif
 	int port = 9090;
 	int option;
@@ -492,7 +497,6 @@ int main(int argc, char **argv) {
 	char *input_filter= NULL;
 	char *mapper_lua= NULL;
 	char *preload_lua= NULL;
-
 
 	while ((option = getopt(argc, argv, "t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:"))
 			!= EOF) {
@@ -558,22 +562,22 @@ int main(int argc, char **argv) {
 			case 'f':
 			case 'o':
 			case 'l':
-				fprintf(stdout, "LUA support unavailable on this copy of dbslayer."); 
-				return 1; 
-				break;
-				
+			fprintf(stdout, "LUA support unavailable on this copy of dbslayer.");
+			return 1;
+			break;
+
 #endif
 #ifdef HAVE_APR_MEMCACHE_H
-			case 'H':
-				memcache_host = optarg;
-			case 'P':
-				memcache_port = (apr_port_t) atoi(optarg);
+		case 'H':
+			memcache_host = optarg;
+		case 'P':
+			memcache_port = (apr_port_t) atoi(optarg);
 #else
 			case 'H':
 			case 'P':
-				fprintf(stdout, "memcache support unavailable on this copy of dbslayer."); 
-				return 1;
-				break;
+			fprintf(stdout, "memcache support unavailable on this copy of dbslayer.");
+			return 1;
+			break;
 #endif				
 		case 'v':
 			fprintf(stdout,"%s",SLAYER_SERVER);
@@ -652,16 +656,17 @@ int main(int argc, char **argv) {
 		}
 	}
 #ifdef HAVE_APR_MEMCACHE_H
-	rv = apr_memcache_create(mpool, 16, 0, &td_shared.memcache);
-	rv = apr_memcache_server_create(mpool,
-			memcache_host,
-			memcache_port,
-			0,
-			thread_count,
-			(thread_count * 2),
-			APR_MEMCACHE_DEFAULT_TTL,
-			&td_shared.memcache_server);
-	rv = apr_memcache_add_server(td_shared.memcache, td_shared.memcache_server);
+	if (memcache_host != NULL) {
+		rv = apr_memcache_create(mpool, 16, 0, &td_shared.memcache);
+		rv = apr_memcache_server_create(mpool, memcache_host, memcache_port, 0,
+				thread_count, (thread_count * 2), 
+				APR_MEMCACHE_DEFAULT_TTL, &td_shared.memcache_server);
+		rv = apr_memcache_add_server(td_shared.memcache,
+				td_shared.memcache_server);
+	} else {
+		td_shared.memcache = NULL;
+		td_shared.memcache_server = NULL;
+	}
 #endif
 
 	for (i = 0; i < thread_count; i++) {
