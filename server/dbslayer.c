@@ -18,7 +18,15 @@
 #include <lua5.1/lua.h>
 #include <lua5.1/lualib.h>
 #include <lua5.1/lauxlib.h>
-#endif 
+#define HAVE_LUA 1
+#else
+#ifdef HAVE_LUA_H
+#include <lua.h>
+#include <lualib.h>
+#include <lauxlib.h>
+#define HAVE_LUA 1
+#endif
+#endif
 #include "dbaccess.h"
 #include "simplejson.h"
 #include "slayer_util.h"
@@ -133,7 +141,9 @@ int handle_other(thread_shared_data_t *td, queue_data_t *qd, char *equery,
 			do {
 				outlen = outfile_stat.size - sent;
 				off = sent;
+#ifndef DARWIN				
 				apr_socket_sendfile(qd->conn, outfile, NULL, &off, &outlen, 0);
+#endif				
 				sent += outlen;
 			} while (status != APR_TIMEUP && outlen!=0 && sent
 					< outfile_stat.size);
@@ -153,7 +163,7 @@ int handle_other(thread_shared_data_t *td, queue_data_t *qd, char *equery,
 			"Not Found");
 }
 
-#ifdef HAVE_LUA5_1_LUA_H
+#ifdef HAVE_LUA
 char * execute_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 	int status;
 	char *lua_output=NULL;
@@ -209,7 +219,7 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 	json_value *stmt = decode_json(in_json, qd->mpool);
 #ifdef HAVE_APR_MEMCACHE_H
 	if (td->memcache != NULL) {
-		if ( (json_get_sql(stmt, sql) == APR_SUCCESS)
+		if ( (json_get_sql(stmt, &sql) == APR_SUCCESS)
 				&& (json_wants_caching(stmt) || td->memcache_force)) {
 			rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string,
 					&out_json, &len, NULL);
@@ -244,7 +254,7 @@ char *query_filter(thread_shared_data_t *td, thread_uniq_data_t *tu,
 	char *output=NULL;
 
 	char *input = urldecode(qd->mpool, equery);
-#ifdef HAVE_LUA5_1_LUA_H
+#ifdef HAVE_LUA
 	if (td->input_filter_lua == NULL) {
 		output = apr_pstrdup(qd->mpool, input);
 	} else {
@@ -293,6 +303,7 @@ int is_uri_match(apr_uri_t *uri_info, char *path, apr_pool_t *mpool) {
 
 void handle_mapping(thread_shared_data_t *td, thread_uniq_data_t *tu,
 		apr_pool_t *mpool) {
+#ifdef HAVE_LUA
 	if (td->mapper_lua != NULL) {
 		if (td->serialized_mapping == NULL) {
 			if (luaL_dofile(tu->lua_state, td->mapper_lua)) {
@@ -307,6 +318,7 @@ void handle_mapping(thread_shared_data_t *td, thread_uniq_data_t *tu,
 			}
 		}
 	}
+#endif	
 }
 
 apr_status_t handle_connection(thread_shared_data_t *td,
@@ -425,7 +437,7 @@ void* run_query_thread(apr_thread_t *mythread, void * x) {
 		td->shared->serialized_schema = json_serialize(mpool, db_schema(
 				dbhandle, mpool));
 	}
-#ifdef HAVE_LUA5_1_LUA_H	    
+#ifdef HAVE_LUA	    
 	lua_pushstring(td->uniq->lua_state, td->shared->serialized_schema);
 	lua_setglobal(td->uniq->lua_state, SLAYER_LUA_SCHEMA_VAR);
 	/* lua_pushstring(td->uniq->lua_state, dbhandle->server[dbhandle->server_offset]);
@@ -544,7 +556,7 @@ int main(int argc, char **argv) {
 		case 'i':
 			tslice = (atoi(optarg) == 0 ? 60 : atoi(optarg));
 			break;
-#ifdef HAVE_LUA5_1_LUA_H
+#ifdef HAVE_LUA
 		case 'm':
 			mapper_lua = optarg;
 			break;
@@ -630,7 +642,7 @@ int main(int argc, char **argv) {
 	td_shared.config = config;
 	td_shared.shutdown = 0;
 	td_shared.basedir = basedir;
-#ifdef HAVE_LUA5_1_LUA_H
+#ifdef HAVE_LUA
 	if (debug) {
 		printf(
 				"input filter lua file '%s', output filter lua file '%s', preload lua file '%s', mapping lua file '%s' \n",
@@ -670,7 +682,9 @@ int main(int argc, char **argv) {
 #endif
 
 	for (i = 0; i < thread_count; i++) {
+#ifdef HAVE_LUA		
 		lua_State *L;
+#endif		
 		apr_thread_t *thread;
 		thread_wrapper_data_t *td_wrapper= apr_pcalloc(mpool,
 				sizeof(thread_wrapper_data_t));
@@ -678,7 +692,7 @@ int main(int argc, char **argv) {
 		td_wrapper->uniq = apr_pcalloc(mpool,
 				sizeof(thread_uniq_data_t));
 		td_wrapper->uniq->thread_number = i;
-#ifdef HAVE_LUA5_1_LUA_H
+#ifdef HAVE_LUA
 		L = luaL_newstate();
 		td_wrapper->uniq->lua_state = L;
 		luaL_openlibs(L);

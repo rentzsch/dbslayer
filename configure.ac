@@ -1,6 +1,6 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
-AC_PREREQ(2.61)
+AC_PREREQ(2.60)
 AC_INIT(dbslayer, 1.0)
 
 AM_INIT_AUTOMAKE(dbslayer, 1.0)
@@ -113,9 +113,11 @@ AC_SUBST(APR_MEMCACHE_LIBS)
 AC_MSG_CHECKING(for apr_memcache)
 AC_MSG_RESULT($APR_MEMCACHE_LIBS)
 #LUA support
+AC_CHECK_LIB(lua, lua_newstate, [LUA_LIBS='-llua '])
+AC_MSG_RESULT($LUA_LIBS)
+AC_CHECK_HEADERS([lua.h  lualib.h])
 AC_CHECK_LIB(lua5.1, lua_newstate, [LUA_LIBS='-llua5.1 -llua5.1-filesystem'])
-AC_MSG_CHECKING(for lua includes)
-AC_CHECK_HEADERS([lua5.1/lua.h lua5.1/lauxlib.h lua5.1/lualib.h])
+AC_CHECK_HEADERS([lua5.1/lua.h lua5.1/lualib.h])
 AC_MSG_RESULT($LUA_INCLUDES_FOUND)
 AC_SUBST(LUA_LIBS)
 LUA_INCLUDES="-I lua"
@@ -124,12 +126,10 @@ for file in lua/*.lua; do
     define=`basename $destfile .h`
     define=`echo "${define}"`
     echo "char * ${define}() {" > server/$destfile
-    cat $file | sed -e 's/\\/\\\\/g' | sed -e 's/"/\\"/g' | tr -d '\015' |  tr -d '\177-\255' | sed -e 's/$/\\n/' | tr -d '\012' | sed -e "s/^/    return(\""/ | sed -e 's/$/");\n/g'>> server/$destfile; 
-    echo "}" >> server/$destfile
+    cat $file | sed -e 's/\\/\\\\/g' | sed -e 's/"/\\"/g' | tr -d '\015' |  tr -d '\177-\255' | sed -e 's/$/\\n/' | tr -d '\012' | sed -e "s/^/    return(\""/ | sed -e 's/$/");}/g'>> server/$destfile; 
     AC_MSG_RESULT(generating $destfile from $file)
 done
-AC_MSG_CHECKING(for lua libraries)
-AC_MSG_RESULT($LUA_LIBS)
+
 # Checks for programs.
 AC_PROG_CC
 AC_PROG_INSTALL

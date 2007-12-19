@@ -4,11 +4,9 @@ typedef struct _thread_shared_data_t {
 	char *user;
 	char *pass;
 	char *config;
-#ifdef HAVE_LUA5_1_LUA_H
 	char *input_filter_lua;
 	char *output_filter_lua;
 	char *mapper_lua;
-#endif
 #ifdef HAVE_APR_MEMCACHE_H
     apr_memcache_t *memcache;
     apr_memcache_server_t *memcache_server;
@@ -31,9 +29,12 @@ typedef struct _thread_shared_data_t {
 
 typedef struct _thread_uniq_data_t {
 	unsigned int thread_number;
-#ifdef HAVE_LUA5_1_LUA_H
+#ifdef HAVE_LUA_5_1_LUA_H
 	lua_State * lua_state;
-#endif 
+#endif
+#ifdef HAVE_LUA_H
+	lua_State * lua_state;
+#endif	
 } thread_uniq_data_t;
 
 typedef struct _thread_wrapper_data_t {
