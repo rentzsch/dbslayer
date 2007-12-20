@@ -126,7 +126,8 @@ for file in lua/*.lua; do
     define=`basename $destfile .h`
     define=`echo "${define}"`
     echo "char * ${define}() {" > server/$destfile
-    cat $file | sed -e 's/\\/\\\\/g' | sed -e 's/"/\\"/g' | tr -d '\015' |  tr -d '\177-\255' | sed -e 's/$/\\n/' | tr -d '\012' | sed -e "s/^/    return(\""/ | sed -e 's/$/");}/g'>> server/$destfile; 
+    cat $file | sed -e 's/\\/\\\\/g' | sed -e 's/"/\\"/g' | tr -d '\015' |  tr -d '\177-\255' | sed -e 's/$/\\n/' | tr -d '\012' | sed -e "s/^/    return(\""/ | sed -e 's/$/");}/g'>> server/$destfile;
+    echo "" >> server/$destfile;  
     AC_MSG_RESULT(generating $destfile from $file)
 done
 

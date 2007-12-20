@@ -29,7 +29,7 @@ typedef struct _thread_shared_data_t {
 
 typedef struct _thread_uniq_data_t {
 	unsigned int thread_number;
-#ifdef HAVE_LUA_5_1_LUA_H
+#ifdef HAVE_LUA5_1_LUA_H
 	lua_State * lua_state;
 #endif
 #ifdef HAVE_LUA_H
