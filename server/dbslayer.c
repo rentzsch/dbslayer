@@ -470,7 +470,7 @@ void* run_query_thread(apr_thread_t *mythread, void * x) {
 	return NULL;
 }
 
-apr_status_t service_requests(apr_socket_t *conn, char *ebuf, 
+apr_status_t serve_requests(apr_socket_t *conn, char *ebuf, 
 		 apr_array_header_t *threads,
 		int thread_count, apr_threadattr_t *thread_attr,
 		thread_shared_data_t *td_shared, char *preload_lua,
@@ -812,7 +812,7 @@ int main(int argc, char **argv) {
 	status = apr_pollset_add(pollset, &pfd);
 
 	printf("Ready to serve requests .... \n");
-	service_requests(conn, ebuf, threads, thread_count,
+	serve_requests(conn, ebuf, threads, thread_count,
 			thread_attr, &td_shared, preload_lua, out_queue, in_queue, pollset,
 			reldir, socket_timeout, mpool);
 	return 0;
