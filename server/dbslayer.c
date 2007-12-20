@@ -287,7 +287,7 @@ int handle_query(thread_shared_data_t *td, thread_uniq_data_t *tu,
 	return 0;
 }
 
-int is_uri_match(apr_uri_t *uri_info, char *path, apr_pool_t *mpool) {
+int uri_match(apr_uri_t *uri_info, char *path, apr_pool_t *mpool) {
 	char *path_cpy= NULL;
 	char *slashed_path= NULL;
 	int retval = 0;
@@ -373,17 +373,17 @@ apr_status_t handle_connection(thread_shared_data_t *td,
 		if (token == NULL || strncmp(token, "HTTP/1", 6) != 0)
 			goto terminate;
 		apr_uri_parse(mpool, meat, &uri_info);
-		if (is_uri_match(&uri_info, SLAYER_QUERY_PATH, mpool) && uri_info.query
+		if (uri_match(&uri_info, SLAYER_QUERY_PATH, mpool) && uri_info.query
 				!= NULL) {
 			handle_query(td, tu, qd, dbhandle, uri_info.query, http_request);
-		} else if (is_uri_match(&uri_info, SLAYER_MAPPING_PATH, mpool)) {
+		} else if (uri_match(&uri_info, SLAYER_MAPPING_PATH, mpool)) {
 			handle_mapping(td, tu, mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					td->serialized_mapping);
-		} else if (is_uri_match(&uri_info, SLAYER_SCHEMA_PATH, mpool)) {
+		} else if (uri_match(&uri_info, SLAYER_SCHEMA_PATH, mpool)) {
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					td->serialized_schema);
-		} else if (is_uri_match(&uri_info, SLAYER_SHUTDOWN_PATH, mpool) ) {
+		} else if (uri_match(&uri_info, SLAYER_SHUTDOWN_PATH, mpool) ) {
 			apr_sockaddr_t *local_addr;
 			apr_sockaddr_t *remote_addr;
 			char *local_ip;
@@ -401,19 +401,19 @@ apr_status_t handle_connection(thread_shared_data_t *td,
 				handle_response(td, qd, uri_info.path, http_request,
 						"403 Forbidden", 403, "You are not authorized!");
 			}
-		} else if (is_uri_match(&uri_info, SLAYER_STATS_PATH, mpool) ) {
+		} else if (uri_match(&uri_info, SLAYER_STATS_PATH, mpool) ) {
 			char *stats = dbslayer_stats_tojson(td->stats, qd->mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					stats);
-		} else if (is_uri_match(&uri_info, SLAYER_STATS_LOG_PATH, mpool) ) {
+		} else if (uri_match(&uri_info, SLAYER_STATS_LOG_PATH, mpool) ) {
 			char *queries = dbslayer_log_get_entries(td->lmanager, qd->mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					queries);
-		} else if (is_uri_match(&uri_info, SLAYER_STATS_ERROR_PATH, mpool) ) {
+		} else if (uri_match(&uri_info, SLAYER_STATS_ERROR_PATH, mpool) ) {
 			char *errors= dbslayer_log_get_entries(td->elmanager, qd->mpool);
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					errors);
-		} else if (is_uri_match(&uri_info, SLAYER_STATS_ARGS_PATH, mpool) ) {
+		} else if (uri_match(&uri_info, SLAYER_STATS_ARGS_PATH, mpool) ) {
 			handle_response(td, qd, uri_info.path, http_request, "200 OK", 200,
 					td->startup_args);
 		} else {
@@ -470,6 +470,110 @@ void* run_query_thread(apr_thread_t *mythread, void * x) {
 	return NULL;
 }
 
+apr_status_t service_requests(apr_socket_t *conn, char *ebuf, 
+		 apr_array_header_t *threads,
+		int thread_count, apr_threadattr_t *thread_attr,
+		thread_shared_data_t *td_shared, char *preload_lua,
+		apr_queue_t *out_queue, apr_queue_t *in_queue, apr_pollset_t *pollset,
+		char *reldir, int socket_timeout, apr_pool_t *mpool) {
+	const apr_pollfd_t *ret_pfd;
+	int pools_created = 0;
+	int serviced = 0;
+	int i;
+	int events;
+	apr_status_t status;
+	while (1) {
+		queue_data_t *qd= NULL;
+		void *fetch= NULL;
+		while ((status = apr_queue_trypop(in_queue, &fetch)) == APR_EINTR)
+			;
+		qd = (queue_data_t*)fetch;
+		if (status == APR_SUCCESS) {
+			apr_pool_clear(qd->mpool);
+		} else if (status == APR_EAGAIN) {
+			qd = apr_pcalloc(mpool,sizeof(queue_data_t));
+			apr_pool_create(&(qd->mpool),NULL);
+			pools_created +=1;
+		} else if (status == APR_EOF) {
+			goto shutdown;
+		}
+		do {
+			status = apr_pollset_poll(pollset, 1000*1000 /* .5 sec */, &events,
+					&ret_pfd);
+			if (apr_atomic_read32(&(*td_shared).shutdown) )
+				goto shutdown;
+		} while (status == APR_TIMEUP);
+		if (status == APR_SUCCESS) {
+			status = apr_socket_accept(&(qd->conn), conn, qd->mpool);
+			status = apr_socket_timeout_set(qd->conn, socket_timeout);
+			qd->begin_request = apr_time_now();
+			while ((status == apr_queue_push(out_queue, qd)) == APR_EINTR)
+				;
+			if (status == APR_EOF)
+				goto shutdown;
+			serviced++;
+		} else {
+			//dlh
+			fprintf(stderr,"ERROR in apr_pollset_poll - %s\n",apr_strerror(status,ebuf,sizeof(ebuf)));
+			dbslayer_log_message(td_shared->elmanager,
+					"ERROR in apr_pollset_poll - ");
+			dbslayer_log_message(td_shared->elmanager, apr_strerror(status,
+					ebuf, sizeof(ebuf)));
+			dbslayer_log_message(td_shared->elmanager, "\n");
+		}
+	}
+
+	shutdown: for (i = 0; i < thread_count; i++) {
+		apr_thread_t *thread = *((apr_thread_t**)(threads->elts
+				+ (threads->elt_size * i)));
+		apr_thread_join(&status, thread);
+	}
+	dbslayer_log_close(td_shared->lmanager);
+	dbslayer_log_close(td_shared->elmanager);
+	mysql_library_end();
+	apr_pool_destroy(mpool);
+	apr_terminate();
+	free(reldir);
+	return APR_SUCCESS;
+
+}
+apr_status_t start_threads(apr_array_header_t *threads, int thread_count,
+		apr_threadattr_t *thread_attr, thread_shared_data_t *td_shared,
+		char *preload_lua, apr_pool_t *mpool) {
+	int i;
+	for (i = 0; i < thread_count; i++) {
+#ifdef HAVE_LUA		
+		lua_State *L;
+#endif		
+		apr_thread_t *thread;
+		thread_wrapper_data_t *td_wrapper= apr_pcalloc(mpool,
+				sizeof(thread_wrapper_data_t));
+		td_wrapper->shared = td_shared;
+		td_wrapper->uniq = apr_pcalloc(mpool,
+				sizeof(thread_uniq_data_t));
+		td_wrapper->uniq->thread_number = i;
+#ifdef HAVE_LUA
+		L = luaL_newstate();
+		td_wrapper->uniq->lua_state = L;
+		luaL_openlibs(L);
+		if (luaL_dostring(L, json_parser_lua())) {
+			printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
+			lua_pop(td_wrapper->uniq->lua_state, 1);
+		}
+		if (preload_lua != NULL) {
+			if (luaL_dofile(L, preload_lua)) {
+				printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
+				lua_pop(td_wrapper->uniq->lua_state, 1);
+			}
+		}
+#endif
+		apr_thread_create(&thread, thread_attr, run_query_thread, td_wrapper,
+				mpool);
+		*((apr_thread_t**)(apr_array_push(threads))) = thread;
+	}
+	return APR_SUCCESS;
+}
+
 int main(int argc, char **argv) {
 	apr_pool_t *mpool;
 	apr_status_t status;
@@ -477,8 +581,6 @@ int main(int argc, char **argv) {
 	apr_sockaddr_t *addr;
 	apr_pollset_t *pollset;
 	apr_pollfd_t pfd;
-	const apr_pollfd_t *ret_pfd;
-	int events;
 	apr_threadattr_t *thread_attr;
 	apr_array_header_t *threads;
 	int i, thread_count =1;
@@ -681,36 +783,8 @@ int main(int argc, char **argv) {
 	}
 #endif
 
-	for (i = 0; i < thread_count; i++) {
-#ifdef HAVE_LUA		
-		lua_State *L;
-#endif		
-		apr_thread_t *thread;
-		thread_wrapper_data_t *td_wrapper= apr_pcalloc(mpool,
-				sizeof(thread_wrapper_data_t));
-		td_wrapper->shared = &td_shared;
-		td_wrapper->uniq = apr_pcalloc(mpool,
-				sizeof(thread_uniq_data_t));
-		td_wrapper->uniq->thread_number = i;
-#ifdef HAVE_LUA
-		L = luaL_newstate();
-		td_wrapper->uniq->lua_state = L;
-		luaL_openlibs(L);
-		if (luaL_dostring(L, json_parser_lua())) {
-			printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
-			lua_pop(td_wrapper->uniq->lua_state, 1);
-		}
-		if (preload_lua != NULL) {
-			if (luaL_dofile(L, preload_lua)) {
-				printf("ERROR: lua - %s\n", (char *)lua_tostring(L, -1));
-				lua_pop(td_wrapper->uniq->lua_state, 1);
-			}
-		}
-#endif
-		apr_thread_create(&thread, thread_attr, run_query_thread, td_wrapper,
-				mpool);
-		*((apr_thread_t**)(apr_array_push(threads))) = thread;
-	}
+	start_threads(threads, thread_count, thread_attr, &td_shared, preload_lua,
+			mpool);
 
 	//create a stats timer thread
 	dbslayer_stats_timer_thread(mpool, td_shared.stats);
@@ -738,59 +812,8 @@ int main(int argc, char **argv) {
 	status = apr_pollset_add(pollset, &pfd);
 
 	printf("Ready to serve requests .... \n");
-	int pools_created = 0;
-	int serviced = 0;
-	while (1) {
-		queue_data_t *qd= NULL;
-		void *fetch= NULL;
-		while ((status = apr_queue_trypop(in_queue, &fetch)) == APR_EINTR)
-			;
-		qd = (queue_data_t*)fetch;
-		if (status == APR_SUCCESS) {
-			apr_pool_clear(qd->mpool);
-		} else if (status == APR_EAGAIN) {
-			qd = apr_pcalloc(mpool,sizeof(queue_data_t));
-			apr_pool_create(&(qd->mpool),NULL);
-			pools_created +=1;
-		} else if (status == APR_EOF) {
-			goto shutdown;
-		}
-		do {
-			status = apr_pollset_poll(pollset, 1000*1000 /* .5 sec */, &events,
-					&ret_pfd);
-			if (apr_atomic_read32(&td_shared.shutdown))
-				goto shutdown;
-		} while (status == APR_TIMEUP);
-		if (status == APR_SUCCESS) {
-			status = apr_socket_accept(&(qd->conn), conn, qd->mpool);
-			status = apr_socket_timeout_set(qd->conn, socket_timeout);
-			qd->begin_request = apr_time_now();
-			while ((status == apr_queue_push(out_queue, qd)) == APR_EINTR)
-				;
-			if (status == APR_EOF)
-				goto shutdown;
-			serviced++;
-		} else {
-			//dlh
-			fprintf(stderr,"ERROR in apr_pollset_poll - %s\n",apr_strerror(status,ebuf,sizeof(ebuf)));
-			dbslayer_log_message(td_shared.elmanager,
-					"ERROR in apr_pollset_poll - ");
-			dbslayer_log_message(td_shared.elmanager, apr_strerror(status,
-					ebuf, sizeof(ebuf)));
-			dbslayer_log_message(td_shared.elmanager, "\n");
-		}
-	}
-
-	shutdown: for (i = 0; i < thread_count; i++) {
-		apr_thread_t *thread = *((apr_thread_t**)(threads->elts
-				+ (threads->elt_size * i)));
-		apr_thread_join(&status, thread);
-	}
-	dbslayer_log_close(td_shared.lmanager);
-	dbslayer_log_close(td_shared.elmanager);
-	mysql_library_end();
-	apr_pool_destroy(mpool);
-	apr_terminate();
-	free(reldir);
+	service_requests(conn, ebuf, threads, thread_count,
+			thread_attr, &td_shared, preload_lua, out_queue, in_queue, pollset,
+			reldir, socket_timeout, mpool);
 	return 0;
 }

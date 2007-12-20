@@ -40,7 +40,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     sleep(1);
     command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
     puts command
-	    @@slayer_pid = fork do
+    @@slayer_pid = fork do
       exec(command)
     end
     sleep(1);
@@ -69,12 +69,16 @@ class TestDBSlayerTypes < Test::Unit::TestCase
   def query_url(sql)
     query_hash = { "SQL" => sql }
     url_args = URI.encode(query_hash.to_json)
-    "http://#{$slayer_server}:#{$slayer_port}/db?#{url_args}"
+    url =  "http://#{$slayer_server}:#{$slayer_port}/db?#{url_args}"
+    puts ""
+    puts url
+    url
   end
 
   def exec_query(sql)
     url = query_url(sql)
     open(url) do |f|
+      puts f
       yield f
     end
   end
@@ -88,7 +92,7 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     exec_query(sql) do |f|
       # return the item, the metadata type
       res = f.read
-  	  puts res if ENV['DEBUG']
+      puts res if ENV['DEBUG']
       h = JSON.parse(res)
       assert_equal h["RESULT"]["HEADER"][0], column
 
