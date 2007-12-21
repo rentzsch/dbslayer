@@ -88,7 +88,7 @@ apr_status_t json_get_sql(json_value *injson, json_value **sql) {
 }
 
 apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl ) {
-	if ( json_get_long(injson, JSON_KEY_CACHE, cache_ttl) == APR_SUCCESS) {
+	if ( json_get_long(injson, "CACHE", cache_ttl) == APR_SUCCESS) {
 		return APR_SUCCESS;
 	}
 	return APR_EINVAL;
@@ -96,7 +96,7 @@ apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl ) {
 
 int json_allows_caching(json_value *json) {
 	json_value *val;
-	val = (json_value*)apr_hash_get(json->value.object, JSON_KEY_CACHE, APR_HASH_KEY_STRING);
+	val = (json_value*)apr_hash_get(json->value.object, "CACHE", APR_HASH_KEY_STRING);
 	if ( val != NULL ) {
 		return 1;
 	}

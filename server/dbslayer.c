@@ -226,9 +226,7 @@ char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 					http_request, apr_pstrcat(qd->mpool, "ERROR: ",
 							errors->value.string, NULL));
 		} else {
-			if (json_allows_caching(stmt) ) {
 				cache_result(td, qd, stmt, result, http_request);
-			}
 		}
 		out_json = json_serialize(qd->mpool, result);
 
