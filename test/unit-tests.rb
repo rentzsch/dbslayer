@@ -36,9 +36,10 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     if opts[:output_filter]
       ofargs = "-o " +  opts[:output_filter]
     end
+	
     `killall dbslayer 2>/dev/null`
     sleep(1);
-    command = "#{slayer} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
+    command = "#{slayer} -H 127.0.0.1 -P 11211 -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
     puts command
     @@slayer_pid = fork do
       exec(command)
@@ -66,19 +67,18 @@ class TestDBSlayerTypes < Test::Unit::TestCase
   end
 
 
-  def query_url(sql)
-    query_hash = { "SQL" => sql }
+  def query_url(sql, options = {})
+    query_hash = { "SQL" => sql }.merge(options)
+    puts query_hash.to_json if query_hash["DEBUG"]
     url_args = URI.encode(query_hash.to_json)
     url =  "http://#{$slayer_server}:#{$slayer_port}/db?#{url_args}"
-    puts ""
-    puts url
+    puts url if query_hash["DEBUG"]
     url
   end
 
-  def exec_query(sql)
-    url = query_url(sql)
+  def exec_query(sql, options = {})
+    url = query_url(sql, options)
     open(url) do |f|
-      puts f
       yield f
     end
   end
@@ -290,6 +290,8 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     end
   end
 
+  
+  
   def test_lua
     File.open(@file_opts[:input_filter], "w") do |file|
       file << "t = Json.Decode( json )\n"
@@ -345,6 +347,18 @@ class TestDBSlayerTypes < Test::Unit::TestCase
   end
 
 
-
+  def test_cache
+    sql = "select * from City where ID=1"
+    exec_query( sql, "CACHE" => 30000 ) do |f|
+      r=JSON.parse(f.read)
+      assert_nil r["CACHE"]
+    end
+    exec_query( sql, "CACHE" => 30000, "DEBUG" => 1) do |f|
+      output = f.read
+      puts output
+      r=JSON.parse(output)
+      assert r["CACHE"]
+    end		    		
+  end
 end
 

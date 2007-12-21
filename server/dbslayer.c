@@ -182,7 +182,35 @@ char * execute_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 	output = apr_pstrdup(mpool, lua_output);
 	return output;
 }
-#endif 
+#endif
+
+apr_status_t cache_result(thread_shared_data_t *td, queue_data_t *qd,
+		json_value *query, json_value *result, const char *http_request) {
+#ifdef HAVE_APR_MEMCACHE_H
+	long cache_ttl;
+	char *serialized_result;
+	json_value  *sql;
+	apr_status_t rv = APR_ENOTIMPL;
+	apr_short_interval_time_t cache_until;
+	if ((td->memcache != NULL) && (json_get_sql(query, &sql) == APR_SUCCESS)
+			&& (json_allows_caching(query) || td->memcache_force)) {
+		if (json_get_cache_ttl(query, &cache_ttl) != APR_SUCCESS) {
+			cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
+		}
+		json_add_object(result, "CACHE", json_create_long(qd->mpool, cache_ttl));
+		cache_until = apr_time_make(cache_ttl,0);
+		serialized_result = json_serialize(qd->mpool, result);
+
+		rv = apr_memcache_set(td->memcache, sql->value.string, serialized_result,
+				strlen(serialized_result), cache_until, 0);
+		if (rv != APR_SUCCESS) {
+			dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
+					http_request, "ERROR: Memcache set failed.");
+		}
+	}
+#endif	
+	return rv;
+}
 
 char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 		db_handle_t *dbhandle, json_value *stmt, const char *http_request) {
@@ -197,8 +225,13 @@ char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 			dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
 					http_request, apr_pstrcat(qd->mpool, "ERROR: ",
 							errors->value.string, NULL));
+		} else {
+			if (json_allows_caching(stmt) ) {
+				cache_result(td, qd, stmt, result, http_request);
+			}
 		}
 		out_json = json_serialize(qd->mpool, result);
+
 	} else {
 		dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
 				http_request, "ERROR: Couldn't parse incoming JSON");
@@ -213,16 +246,16 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 	json_value *sql=NULL;
 	apr_status_t rv;
 	apr_size_t len;
-	long cache_ttl;
-	apr_short_interval_time_t cache_until;
+
 #endif
 	json_value *stmt = decode_json(in_json, qd->mpool);
 #ifdef HAVE_APR_MEMCACHE_H
 	if (td->memcache != NULL) {
 		if ( (json_get_sql(stmt, &sql) == APR_SUCCESS)
-				&& (json_wants_caching(stmt) || td->memcache_force)) {
-			rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string,
-					&out_json, &len, NULL);
+				&& (json_allows_caching(stmt) || td->memcache_force)) {
+			/* key = apr_memcache_hash(td->memcache, sql->value.string, strlen(sql->value.string)); */
+			rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string, &out_json,
+					&len, NULL);
 			if (rv == APR_SUCCESS) {
 				return out_json;
 			}
@@ -230,21 +263,7 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 	}
 #endif
 	out_json = query_db(td, qd, dbhandle, stmt, http_request);
-#ifdef HAVE_APR_MEMCACHE_H
-	if (td->memcache != NULL) {
-		if (json_wants_caching(stmt) ) {
-			if (json_get_cache_ttl(stmt, &cache_ttl) != APR_SUCCESS) {
-				cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
-			}
-			cache_until = apr_time_make(cache_ttl,0);
-			rv = apr_memcache_set(td->memcache, sql->value.string, out_json,
-					strlen(out_json), cache_until, 0);
-			dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
-					http_request, "ERROR: Memcache set failed.");
 
-		}
-	}
-#endif		
 	return out_json;
 }
 
@@ -470,12 +489,12 @@ void* run_query_thread(apr_thread_t *mythread, void * x) {
 	return NULL;
 }
 
-apr_status_t serve_requests(apr_socket_t *conn, char *ebuf, 
-		 apr_array_header_t *threads,
-		int thread_count, apr_threadattr_t *thread_attr,
-		thread_shared_data_t *td_shared, char *preload_lua,
-		apr_queue_t *out_queue, apr_queue_t *in_queue, apr_pollset_t *pollset,
-		char *reldir, int socket_timeout, apr_pool_t *mpool) {
+apr_status_t serve_requests(apr_socket_t *conn, char *ebuf,
+		apr_array_header_t *threads, int thread_count,
+		apr_threadattr_t *thread_attr, thread_shared_data_t *td_shared,
+		char *preload_lua, apr_queue_t *out_queue, apr_queue_t *in_queue,
+		apr_pollset_t *pollset, char *reldir, int socket_timeout,
+		apr_pool_t *mpool) {
 	const apr_pollfd_t *ret_pfd;
 	int pools_created = 0;
 	int serviced = 0;
@@ -528,16 +547,11 @@ apr_status_t serve_requests(apr_socket_t *conn, char *ebuf,
 				+ (threads->elt_size * i)));
 		apr_thread_join(&status, thread);
 	}
-	dbslayer_log_close(td_shared->lmanager);
-	dbslayer_log_close(td_shared->elmanager);
-	mysql_library_end();
-	apr_pool_destroy(mpool);
-	apr_terminate();
-	free(reldir);
+
 	return APR_SUCCESS;
 
 }
-apr_status_t start_threads(apr_array_header_t *threads, int thread_count,
+apr_status_t create_threads(apr_array_header_t *threads, int thread_count,
 		apr_threadattr_t *thread_attr, thread_shared_data_t *td_shared,
 		char *preload_lua, apr_pool_t *mpool) {
 	int i;
@@ -612,7 +626,7 @@ int main(int argc, char **argv) {
 	char *mapper_lua= NULL;
 	char *preload_lua= NULL;
 
-	while ((option = getopt(argc, argv, "t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:"))
+	while ((option = getopt(argc, argv, "t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:H:P:"))
 			!= EOF) {
 		switch (option) {
 		case 'b':
@@ -686,6 +700,7 @@ int main(int argc, char **argv) {
 			memcache_host = optarg;
 		case 'P':
 			memcache_port = (apr_port_t) atoi(optarg);
+		break;
 #else
 			case 'H':
 			case 'P':
@@ -783,7 +798,7 @@ int main(int argc, char **argv) {
 	}
 #endif
 
-	start_threads(threads, thread_count, thread_attr, &td_shared, preload_lua,
+	create_threads(threads, thread_count, thread_attr, &td_shared, preload_lua,
 			mpool);
 
 	//create a stats timer thread
@@ -812,8 +827,15 @@ int main(int argc, char **argv) {
 	status = apr_pollset_add(pollset, &pfd);
 
 	printf("Ready to serve requests .... \n");
-	serve_requests(conn, ebuf, threads, thread_count,
-			thread_attr, &td_shared, preload_lua, out_queue, in_queue, pollset,
-			reldir, socket_timeout, mpool);
+	serve_requests(conn, ebuf, threads, thread_count, thread_attr, &td_shared,
+			preload_lua, out_queue, in_queue, pollset, reldir, socket_timeout,
+			mpool);
+
+	dbslayer_log_close(td_shared.lmanager);
+	dbslayer_log_close(td_shared.elmanager);
+	mysql_library_end();
+	apr_pool_destroy(mpool);
+	apr_terminate();
+	free(reldir);
 	return 0;
 }

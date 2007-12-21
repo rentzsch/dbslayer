@@ -60,7 +60,7 @@ char* json_serialize(apr_pool_t *mpool, json_value *json);
 apr_status_t json_get_string(json_value *injson, const char * key, json_value **value);
 apr_status_t json_get_sql(json_value *injson, json_value **sql);
 apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl );
-int json_wants_caching(json_value *json);
+int json_allows_caching(json_value *json);
 apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl );
 #define JSON_KEY_SQL "SQL"
 #define JSON_KEY_CACHE "CACHE"

@@ -66,14 +66,19 @@ apr_status_t json_get_string(json_value *injson, const char *key, json_value **v
 }
 
 apr_status_t json_get_long(json_value *injson, const char *key, long *num) {
+	apr_status_t retval  = APR_EINVAL;
 	json_value *value;
 	if (injson->type == JSON_OBJECT && (value = (json_value*)apr_hash_get(
 				injson->value.object, key, APR_HASH_KEY_STRING)) !=NULL
 				&& value->type == JSON_LONG) {
 		num = &value->value.lnumber;
-		return APR_SUCCESS;
+		retval = APR_SUCCESS;
 	}
-	return APR_EINVAL;
+	if ( retval == APR_EINVAL ) {
+		retval = APR_EINVAL;
+	}
+		
+	return retval;
 }
 
 apr_status_t json_get_sql(json_value *injson, json_value **sql) {
@@ -89,11 +94,11 @@ apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl ) {
 	return APR_EINVAL;
 }
 
-int json_wants_caching(json_value *json) {
-	long val=0; 
-	if ( (json_get_cache_ttl(json, &val) == APR_SUCCESS) 
-		&& ( val > 0 )) {
-		return val;
+int json_allows_caching(json_value *json) {
+	json_value *val;
+	val = (json_value*)apr_hash_get(json->value.object, JSON_KEY_CACHE, APR_HASH_KEY_STRING);
+	if ( val != NULL ) {
+		return 1;
 	}
 	return 0;
 }
