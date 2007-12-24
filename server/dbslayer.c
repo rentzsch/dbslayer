@@ -183,29 +183,51 @@ char * execute_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 	return output;
 }
 #endif
+#ifdef HAVE_APR_MEMCACHE_H
 
+void cache_hash(thread_shared_data_t *td, char *key, char *key_hash, size_t key_hash_len) {
+	apr_uint32_t crc;	
+	crc = apr_memcache_hash(td->memcache, key,
+				strlen(key));
+	snprintf(key_hash, key_hash_len, "0x%x", crc);	
+}
+apr_status_t cache_set(thread_shared_data_t *td, queue_data_t *qd,
+		json_value *key, json_value *value,
+		apr_short_interval_time_t cache_until) {
+	char key_hash[1024];
+	char *serialized_value;
+	cache_hash(td, key->value.string, key_hash, 1024);
+	serialized_value = json_serialize(qd->mpool, value);
+	return apr_memcache_set(td->memcache, key_hash, serialized_value,
+			(strlen(serialized_value) + 1), cache_until, 0);
+}
+
+#endif
 apr_status_t cache_result(thread_shared_data_t *td, queue_data_t *qd,
 		json_value *query, json_value *result, const char *http_request) {
 #ifdef HAVE_APR_MEMCACHE_H
 	long cache_ttl;
-	char *serialized_result;
-	json_value  *sql;
-	apr_status_t rv = APR_ENOTIMPL;
+	json_value *sql;
+	apr_status_t rv= APR_ENOTIMPL;
 	apr_short_interval_time_t cache_until;
-	if ((td->memcache != NULL) && (json_get_sql(query, &sql) == APR_SUCCESS)
-			&& (json_allows_caching(query) || td->memcache_force)) {
-		if (json_get_cache_ttl(query, &cache_ttl) != APR_SUCCESS) {
-			cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
-		}
-		json_add_object(result, "CACHE", json_create_long(qd->mpool, cache_ttl));
-		cache_until = apr_time_make(cache_ttl,0);
-		serialized_result = json_serialize(qd->mpool, result);
-
-		rv = apr_memcache_set(td->memcache, sql->value.string, serialized_result,
-				strlen(serialized_result), cache_until, 0);
-		if (rv != APR_SUCCESS) {
-			dbslayer_log_err_message(td->elmanager, qd->mpool, qd->conn,
-					http_request, "ERROR: Memcache set failed.");
+	if (td->memcache != NULL) {
+		if (json_get_sql(query, &sql) == APR_SUCCESS) {
+			if (json_allows_caching(query) ) {
+				if (json_get_cache_ttl(query, &cache_ttl) != APR_SUCCESS) {
+					cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
+				}
+				json_add_object(result, "CACHE", json_create_long(qd->mpool,
+										cache_ttl));
+				cache_until = apr_time_make(cache_ttl,0);
+				rv = cache_set(td, qd, sql, result, cache_until);
+				json_add_object(result, "CACHE_WRITE", json_create_long(qd->mpool,
+										1));				
+				if (rv != APR_SUCCESS) {
+					dbslayer_log_err_message(td->elmanager, qd->mpool,
+							qd->conn, http_request,
+							"ERROR: Memcache set failed.");
+				}
+			}
 		}
 	}
 #endif	
@@ -226,7 +248,7 @@ char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 					http_request, apr_pstrcat(qd->mpool, "ERROR: ",
 							errors->value.string, NULL));
 		} else {
-				cache_result(td, qd, stmt, result, http_request);
+			cache_result(td, qd, stmt, result, http_request);
 		}
 		out_json = json_serialize(qd->mpool, result);
 
@@ -237,6 +259,17 @@ char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 	return out_json;
 }
 
+#ifdef HAVE_APR_MEMCACHE_H
+
+
+apr_status_t cache_get(thread_shared_data_t *td, queue_data_t *qd,
+		json_value *key, char **out_json, apr_size_t *len) {
+	char key_hash[1024];
+	cache_hash(td, key->value.string, key_hash, 1024);
+	return apr_memcache_getp(td->memcache, qd->mpool, key_hash,
+			out_json, len, NULL);	
+}
+#endif 
 char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 		db_handle_t *dbhandle, char *in_json, const char *http_request) {
 	char *out_json;
@@ -250,10 +283,8 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 #ifdef HAVE_APR_MEMCACHE_H
 	if (td->memcache != NULL) {
 		if ( (json_get_sql(stmt, &sql) == APR_SUCCESS)
-				&& (json_allows_caching(stmt) || td->memcache_force)) {
-			/* key = apr_memcache_hash(td->memcache, sql->value.string, strlen(sql->value.string)); */
-			rv = apr_memcache_getp(td->memcache, qd->mpool, sql->value.string, &out_json,
-					&len, NULL);
+				&& json_allows_caching(stmt) ) {
+			rv = cache_get(td, qd, sql, &out_json, &len);
 			if (rv == APR_SUCCESS) {
 				return out_json;
 			}
@@ -624,8 +655,8 @@ int main(int argc, char **argv) {
 	char *mapper_lua= NULL;
 	char *preload_lua= NULL;
 
-	while ((option = getopt(argc, argv, "t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:H:P:"))
-			!= EOF) {
+	while ((option = getopt(argc, argv,
+			"t:h:p:u:x:s:c:d:w:b:l:e:n:i:v:f:o:m:H:P:")) != EOF) {
 		switch (option) {
 		case 'b':
 			basedir = optarg;
@@ -698,7 +729,7 @@ int main(int argc, char **argv) {
 			memcache_host = optarg;
 		case 'P':
 			memcache_port = (apr_port_t) atoi(optarg);
-		break;
+			break;
 #else
 			case 'H':
 			case 'P':

@@ -2,19 +2,20 @@ require "rubygems"
 require "test/unit"
 require "open-uri"
 require "json"
-
+require "memcache"
 #TEST_URL = "app1.prvt.nytimes.com"
 #TEST_PORT = 9090
 
 if __FILE__ == $0
   $slayer_server = ARGV[0]
   $slayer_port = ARGV[1]
-
+  $memcache_server = ARGV[2]
+  $memcache_port = ARGV[3]
 end
 $slayer_server ||= "localhost"
 $slayer_port ||= 9090
-
-
+$memcache_server = "127.0.0.1"
+$memcache_port ||=11211   
 # {"RESULT" : {"TYPES" : ["MYSQL_TYPE_LONG" , "MYSQL_TYPE_STRING" , "MYSQL_TYPE_TINY" , "MYSQL_TYPE_SHORT" , "MYSQL_TYPE_INT24" , "MYSQL_TYPE_LONG" , "MYSQL_TYPE_LONGLONG" , "MYSQL_TYPE_NEWDECIMAL" , "MYSQL_TYPE_DOUBLE" , "MYSQL_TYPE_FLOAT" , "MYSQL_TYPE_BLOB" , "MYSQL_TYPE_TEXT" , "MYSQL_TYPE_BLOB" , "MYSQL_TYPE_STRING" , "MYSQL_TYPE_VAR_STRING" , "MYSQL_TYPE_TEXT" , "MYSQL_TYPE_TEXT" , "MYSQL_TYPE_BLOB" , "MYSQL_TYPE_DATE" , "MYSQL_TYPE_TIME" , "MYSQL_TYPE_DATETIME" , "MYSQL_TYPE_TIMESTAMP" , "MYSQL_TYPE_YEAR" , "MYSQL_TYPE_STRING" , "MYSQL_TYPE_STRING"] , "HEADER" : ["id" , "row" , "tinyint" , "smallint" , "mediumint" , "integer" , "bigint" , "decimal" , "double" , "float" , "tinytext" , "blob" , "text" , "charstr" , "varcharstr" , "mediumblob" , "longblob" , "longtext" , "date" , "time" , "datetime" , "timestamp" , "year" , "enum" , "set"] , "ROWS" : [[1 , "data" , 2 , 9 , 257 , 32768 , 2.14748e+09 , 400.85 , 500.99 , 3.14159 , "x" , null , "text" , "char" , "varchar" , null , null , "longtext" , "2001-10-11" , "12:30:00" , "2001-10-11 12:30:00" , "2001-10-11 12:30:00" , "2001" , "apple" , "teacher"] , [2 , "null" , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null , null]]}}
 class TestDBSlayerTypes < Test::Unit::TestCase
   def start_slayer(opts={ })
@@ -39,18 +40,33 @@ class TestDBSlayerTypes < Test::Unit::TestCase
 	
     `killall dbslayer 2>/dev/null`
     sleep(1);
-    command = "#{slayer} -H 127.0.0.1 -P 11211 -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
-    puts command
+    command = "#{slayer} -H #{$memcache_server} -P #{$memcache_port} -d 1 -s #{$slayer_server} -u slayer -p #{$slayer_port} -c #{conf} #{ifargs} #{ofargs} #{preload_args} #{margs}"
+    #puts command
     @@slayer_pid = fork do
       exec(command)
     end
     sleep(1);
   end
 
+  def start_memcached
+    command = "memcached  -p #{$memcache_port} -l #{$memcache_server} -v"
+    #puts command
+    @@memcached_pid = fork do
+        exec(command)
+    end
+    sleep(1);  
+  end
+  
+  def stop_memcached
+    Process.kill("TERM", @@memcached_pid)
+    Process.wait(@@memcached_pid)
+    sleep(5)    
+  end
+  
   def stop_slayer
     Process.kill("TERM", @@slayer_pid)
-    Process.wait(@@slayer_pid)
-    sleep(5)
+        Process.wait(@@slayer_pid)
+        sleep(5)    
   end
 
   def setup
@@ -346,19 +362,32 @@ class TestDBSlayerTypes < Test::Unit::TestCase
     assert_nil failure
   end
 
-
   def test_cache
-    sql = "select * from City where ID=1"
-    exec_query( sql, "CACHE" => 30000 ) do |f|
-      r=JSON.parse(f.read)
-      assert_nil r["CACHE"]
-    end
-    exec_query( sql, "CACHE" => 30000, "DEBUG" => 1) do |f|
-      output = f.read
-      puts output
-      r=JSON.parse(output)
-      assert r["CACHE"]
-    end		    		
-  end
+     start_memcached
+     sql = "select * from City where ID=1"
+     cache = MemCache::new "#{$memcache_server}:#{$memcache_port}"
+     cache.flush_all
+     exec_query( sql, "CACHE" => 3000000 ) do |f|
+            output = f.read
+            r=JSON.parse(output)
+            assert r["CACHE_WRITE"]
+     end     
+     exec_query( sql, "CACHE" => 3000000 ) do |f|
+       output = f.read
+       r=JSON.parse(output)
+       assert r["CACHE"]
+     end
+     exec_query( sql ) do |f|
+       output = f.read
+       r=JSON.parse(output)
+       assert_nil r["CACHE"]
+     end     
+     exec_query( sql, "CACHE" => 3000000) do |f|
+       output = f.read
+       r=JSON.parse(output)
+       assert r["CACHE"]
+     end
+     stop_memcached
+   end
 end
 
