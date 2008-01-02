@@ -186,7 +186,7 @@ char * execute_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 #endif
 #ifdef HAVE_APR_MEMCACHE_H
 
-apr_status_t cache_key_hash_for(thread_shared_data_t *td, const char *key, char *key_hash, size_t key_hash_len) {
+apr_status_t cache_key_to_hash(thread_shared_data_t *td, const char *key, char *key_hash, size_t key_hash_len) {
 	unsigned char digest[APR_MD5_DIGESTSIZE];
 	apr_status_t ret;
 	memset(digest, 0, APR_MD5_DIGESTSIZE); 
@@ -205,7 +205,7 @@ apr_status_t cache_set(thread_shared_data_t *td, queue_data_t *qd,
 		apr_short_interval_time_t cache_until) {
 	char key_hash[1024];
 	char *serialized_value;
-	cache_key_hash_for(td, key->value.string, key_hash, 1024);
+	cache_key_to_hash(td, key->value.string, key_hash, 1024);
 	serialized_value = json_serialize(qd->mpool, value);
 	return apr_memcache_set(td->memcache, key_hash, serialized_value,
 			(strlen(serialized_value) + 1), cache_until, 0);
@@ -273,10 +273,14 @@ char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 
 apr_status_t cache_get(thread_shared_data_t *td, queue_data_t *qd,
 		json_value *key, char **out_json, apr_size_t *len) {
-	char key_hash[1024];
-	cache_key_hash_for(td, key->value.string, key_hash, 1024);
-	return apr_memcache_getp(td->memcache, qd->mpool, key_hash,
-			out_json, len, NULL);	
+	char key_hash[64];
+	apr_status_t retval;
+	retval = cache_key_to_hash(td, key->value.string, key_hash, 64);
+	if (retval == APR_SUCCESS) {
+	  retval = apr_memcache_getp(td->memcache, qd->mpool, key_hash,
+			out_json, len, NULL);
+	}
+	return retval;
 }
 #endif 
 char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
