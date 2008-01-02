@@ -14,6 +14,7 @@
 #include <apr_atomic.h>
 #include <apr_time.h>
 #include <apr_file_info.h>
+#include <apr_md5.h> 
 #ifdef HAVE_LUA5_1_LUA_H
 #include <lua5.1/lua.h>
 #include <lua5.1/lualib.h>
@@ -185,18 +186,26 @@ char * execute_lua(lua_State *L, char *filter, char *input, apr_pool_t *mpool) {
 #endif
 #ifdef HAVE_APR_MEMCACHE_H
 
-void cache_hash(thread_shared_data_t *td, char *key, char *key_hash, size_t key_hash_len) {
-	apr_uint32_t crc;	
-	crc = apr_memcache_hash(td->memcache, key,
-				strlen(key));
-	snprintf(key_hash, key_hash_len, "0x%x", crc);	
+apr_status_t cache_key_hash_for(thread_shared_data_t *td, const char *key, char *key_hash, size_t key_hash_len) {
+	unsigned char digest[APR_MD5_DIGESTSIZE];
+	apr_status_t ret;
+	memset(digest, 0, APR_MD5_DIGESTSIZE); 
+	ret = apr_md5(digest, key, strlen(key));
+	if ( ret == APR_SUCCESS ) {
+		snprintf(key_hash, key_hash_len, "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+	            digest[0], digest[1], digest[2], digest[3],
+	            digest[4], digest[5], digest[6], digest[7],
+	            digest[8], digest[9], digest[10], digest[11],
+	            digest[12], digest[13], digest[14], digest[15]);
+	}
+	return ret;
 }
 apr_status_t cache_set(thread_shared_data_t *td, queue_data_t *qd,
 		json_value *key, json_value *value,
 		apr_short_interval_time_t cache_until) {
 	char key_hash[1024];
 	char *serialized_value;
-	cache_hash(td, key->value.string, key_hash, 1024);
+	cache_key_hash_for(td, key->value.string, key_hash, 1024);
 	serialized_value = json_serialize(qd->mpool, value);
 	return apr_memcache_set(td->memcache, key_hash, serialized_value,
 			(strlen(serialized_value) + 1), cache_until, 0);
@@ -265,7 +274,7 @@ char * query_db(thread_shared_data_t *td, queue_data_t *qd,
 apr_status_t cache_get(thread_shared_data_t *td, queue_data_t *qd,
 		json_value *key, char **out_json, apr_size_t *len) {
 	char key_hash[1024];
-	cache_hash(td, key->value.string, key_hash, 1024);
+	cache_key_hash_for(td, key->value.string, key_hash, 1024);
 	return apr_memcache_getp(td->memcache, qd->mpool, key_hash,
 			out_json, len, NULL);	
 }
