@@ -367,25 +367,26 @@ class TestDBSlayerTypes < Test::Unit::TestCase
      sql = "select * from City where ID=1"
      cache = MemCache::new "#{$memcache_server}:#{$memcache_port}"
      cache.flush_all
-     exec_query( sql, "CACHE" => 3000000 ) do |f|
+     exec_query( sql, "CACHE" => 1, "CACHE_TTL" => 3000000 ) do |f|
             output = f.read
             r=JSON.parse(output)
             assert r["CACHE_WRITE"]
      end     
-     exec_query( sql, "CACHE" => 3000000 ) do |f|
+     exec_query( sql, "CACHE" => 1, "CACHE_TTL" => 3000000 ) do |f|
        output = f.read
        r=JSON.parse(output)
-       assert r["CACHE"]
+       puts r["CACHED"]       
+       assert r["CACHED"]
      end
      exec_query( sql ) do |f|
        output = f.read
        r=JSON.parse(output)
-       assert_nil r["CACHE"]
+       assert_nil r["CACHED"]
      end     
-     exec_query( sql, "CACHE" => 3000000) do |f|
+     exec_query( sql, "CACHE" => 1) do |f|
        output = f.read
        r=JSON.parse(output)
-       assert r["CACHE"]
+       assert r["CACHED"]
      end
      stop_memcached
    end

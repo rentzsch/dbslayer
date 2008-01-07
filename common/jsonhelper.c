@@ -103,10 +103,10 @@ apr_status_t json_get_sql(json_value *injson, json_value **sql) {
 
 apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl) {
 	double d;
-	if (json_get_long(injson, "CACHE", cache_ttl) == APR_SUCCESS) {
+	if (json_get_long(injson, "CACHE_TTL", cache_ttl) == APR_SUCCESS) {
 		return APR_SUCCESS;
 	}
-	if (json_get_double(injson, "CACHE", &d) == APR_SUCCESS) {
+	if (json_get_double(injson, "CACHE_TTL", &d) == APR_SUCCESS) {
 		(*cache_ttl) = round(d);
 		return APR_SUCCESS;
 	}
@@ -115,10 +115,14 @@ apr_status_t json_get_cache_ttl(json_value *injson, long *cache_ttl) {
 
 int json_allows_caching(json_value *json) {
 	long cache_ttl;
+	double d; 
 	int retval = 0;
-	if (json_get_cache_ttl(json, &cache_ttl) == APR_SUCCESS) {
-		retval = 1;
+	if (json_get_long(json, "CACHE", &cache_ttl) == APR_SUCCESS) {
+		retval = (int) cache_ttl; 
 	}
+	else if (json_get_double(json, "CACHE", &d) == APR_SUCCESS) {
+		retval = (int) round(d);
+	}	
 	return retval;
 }
 

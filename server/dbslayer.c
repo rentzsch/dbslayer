@@ -41,7 +41,7 @@
 #endif
 #include "dbslayer_data_types.h"
 /* $Id: dbslayer.c,v 1.26 2007/07/10 17:55:16 derek Exp $ */
-
+#define RFC_822_DATE_FMT "%a, %d %b %Y %H:%M:%S %z"
 #define SLAYER_SERVER "Server: dbslayer/server beta-10\r\n"
 
 //Content-type= text/plain; \r\n
@@ -219,14 +219,20 @@ apr_status_t cache_result(thread_shared_data_t *td, queue_data_t *qd,
 	json_value *sql;
 	apr_status_t rv= APR_ENOTIMPL;
 	apr_short_interval_time_t cache_until;
+	char tm[128];
+	struct tm *l_tm;
+	time_t t;
 	if (td->memcache != NULL) {
 		if (json_get_sql(query, &sql) == APR_SUCCESS) {
 			if (json_allows_caching(query) ) {
 				if (json_get_cache_ttl(query, &cache_ttl) != APR_SUCCESS) {
 					cache_ttl = APR_MEMCACHE_DEFAULT_TTL;
 				}
-				json_add_object(result, "CACHE", json_create_long(qd->mpool,
-										cache_ttl));
+				t = time(NULL);
+				l_tm = localtime(&t);
+				strftime(tm, sizeof(tm), RFC_822_DATE_FMT, l_tm);
+				json_add_object(result, "CACHED", json_create_string(qd->mpool,
+										tm));
 				cache_until = apr_time_make(cache_ttl,0);
 				rv = cache_set(td, qd, sql, result, cache_until);
 				json_add_object(result, "CACHE_WRITE", json_create_long(qd->mpool,
@@ -290,7 +296,6 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 	json_value *sql=NULL;
 	apr_status_t rv;
 	apr_size_t len;
-
 #endif
 	json_value *stmt = decode_json(in_json, qd->mpool);
 #ifdef HAVE_APR_MEMCACHE_H
@@ -309,7 +314,7 @@ char * query_cache(thread_shared_data_t *td, queue_data_t *qd,
 	return out_json;
 }
 
-char *query_filter(thread_shared_data_t *td, thread_uniq_data_t *tu,
+char *handle_lua_filter(thread_shared_data_t *td, thread_uniq_data_t *tu,
 		queue_data_t *qd, db_handle_t *dbhandle, char *equery,
 		const char *http_request) {
 	char *output=NULL;
@@ -342,7 +347,7 @@ int handle_query(thread_shared_data_t *td, thread_uniq_data_t *tu,
 		const char *http_request) {
 
 	char *output=NULL;
-	output = query_filter(td, tu, qd, dbhandle, equery, http_request);
+	output = handle_lua_filter(td, tu, qd, dbhandle, equery, http_request);
 
 	handle_response(td, qd, equery, http_request, "200 OK", 200, output);
 	return 0;
