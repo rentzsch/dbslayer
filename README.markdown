@@ -10,7 +10,7 @@ I added `dbslayer.command` for easy deployment on Mac OS X.
 	cd dbslayer
 	./configure
 	make
-	open dbslayer.command
+	open start_dbslayer.command
 
 The dbslayer server process should now be running and listening for local connections on port 9090. Try [giles](http://github.com/rentzsch/giles) for a simple ajax frontend to dbslayer to verify it's working.
 
